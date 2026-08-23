@@ -1,8 +1,8 @@
-# Sofra — Welcome, Level & Auto-Role Systems
+# Sofra — Discord Community Bot
 
 Sofra is a lightweight Discord bot designed to run continuously on Wispbyte.
-It includes a polished welcome system, an opt-in activity level system, and an
-automatic role for new members.
+It includes polished welcome, leveling, auto-role, moderation, information,
+announcement, poll, and safe meme features.
 
 There is no dashboard, web server, image generation, avatar downloading, or
 message archive. Configuration happens through Discord slash commands.
@@ -38,6 +38,17 @@ message archive. Configuration happens through Discord slash commands.
 - Persistent per-server role and enabled state
 - Duplicate join protection and failure isolation from welcomes and levels
 
+### Moderation and community tools
+
+- Purge, ban, kick, timeout mute/unmute, warning, unban, lockdown, unlock, and
+  slowmode commands with Discord permission and role-hierarchy checks
+- Private aesthetic warning DMs with persistent, moderator-only offense totals
+- Lockdowns that remember and restore the channel's exact previous typing state
+- Member and server information embeds
+- Modal-based announcement embed builder
+- Discord-native single-choice polls that survive bot restarts
+- Retried, validated SFW memes from a small subreddit allowlist
+
 ## Discord setup
 
 1. Open the [Discord Developer Portal](https://discord.com/developers/applications).
@@ -51,6 +62,12 @@ message archive. Configuration happens through Discord slash commands.
    - Embed Links
 5. To use automatic level rewards or auto-role, also give Sofra **Manage
    Roles** and move Sofra's highest role above every role she needs to assign.
+6. Give moderator roles only the permissions they should actually use. Sofra
+   needs **Manage Messages**, **Kick Members**, **Ban Members**, **Moderate
+   Members**, and **Manage Channels** for the corresponding commands. Channel
+   lockdowns additionally require Sofra to have **Manage Roles**, because they
+   safely edit the `@everyone` channel permission overwrite.
+7. Polls require **Send Messages** and **Create Polls** in the channel.
 
 The level system uses the normal **Guild Messages** gateway intent, which is
 requested by the code automatically. Sofra does **not** need Message Content
@@ -81,10 +98,11 @@ npm ci --omit=dev
 npm start
 ```
 
-No new package dependency is required for the level system. Startup and
-runtime failures are logged clearly in the Wispbyte console. If level storage
-cannot start, that feature pauses safely while the welcome system remains
-available.
+No new package dependency is required. Startup and runtime failures are logged
+clearly in the Wispbyte console. The shared SQLite database uses bounded
+warning history and a limited WAL journal to remain disk-conscious. `/meme`
+requires ordinary outbound HTTPS access to the third-party
+[Meme API](https://github.com/D3vd/Meme_Api) at `meme-api.com`.
 
 ## Commands
 
@@ -132,6 +150,41 @@ All `/autorole` commands require **Manage Server** or Administrator permission.
 The feature starts disabled and ignores bots. If the configured role is deleted,
 Sofra clears it and disables auto-role safely.
 
+### Moderation
+
+- `/purge messages:1-100|all` — delete recent messages; `all` is capped at
+  1,000 per run
+- `/ban user reason delete-message-days` — ban a user and optionally delete up
+  to seven days of messages
+- `/kick member reason` — remove a member
+- `/mute member duration-minutes reason` — apply a Discord timeout for up to 28 days
+- `/unmute member reason` — end a timeout early
+- `/warn member reason` — record an offense and send an aesthetic private DM
+- `/warnings member` — privately review total offenses and recent warning details
+- `/unban user-id reason` — remove a ban using the exact Discord user ID
+- `/lockdown channel reason` — deny public channel and thread typing
+- `/unlock channel reason` — restore the pre-lockdown permission values
+- `/slowmode seconds channel reason` — set 0–21,600 seconds of slowmode
+
+Every response containing warning history is ephemeral. Moderation commands
+require their matching Discord permission at both command-registration time and
+runtime. Targeted actions also validate the moderator's and Sofra's role
+hierarchies.
+
+Discord bulk deletion cannot remove messages older than 14 days. `/purge all`
+therefore deletes all recent messages it can find, up to 1,000 per command.
+
+### Information and community
+
+- `/userinfo member` — show account creation, join date, IDs, avatar, and roles
+- `/serverinfo` — show member count, boosts, creation date, owner, channels, and roles
+- `/embed channel` — open a modal for title, description, hex color, footer, and image
+- `/poll question option-1 option-2 ... duration-hours` — create a native Discord poll
+- `/meme` — fetch a validated SFW meme
+
+`/userinfo`, `/serverinfo`, and `/meme` are public. Creating announcements and
+polls requires **Manage Messages**.
+
 ## Level behavior and defaults
 
 The level system starts **disabled** so existing deployments do not begin
@@ -153,14 +206,17 @@ from assigning managed roles or roles above Sofra's highest role.
 ## Persistence and privacy
 
 Welcome configuration is stored atomically in `data/welcome-config.json`.
-Level configuration, XP, cooldown state, reward mappings, and auto-role
-configuration are stored in `data/levels.sqlite`. Both paths are ignored by Git.
+Level configuration, XP, cooldown state, reward mappings, auto-role settings,
+warnings, and active lockdown restoration data are stored in
+`data/levels.sqlite`. Both paths are ignored by Git.
 
 The level database stores only the data needed for the feature: server and user
 IDs, total XP, eligible-message count, last award timestamp/message ID, level
-settings, channel ID, reward role IDs, and the configured auto-role ID. It does
-not store message text, avatars, full message history, join history, or a
-permanent event log.
+settings, channel ID, reward role IDs, the configured auto-role ID, warning
+reasons/moderator IDs/timestamps, and temporary lockdown state. Detailed
+warning history is limited to the latest 25 entries per member while the total
+offense count remains accurate. Sofra does not store ordinary message text,
+avatars, purged messages, polls, memes, full message history, or join history.
 
 Normal Wispbyte restarts reload both files automatically. If you fully erase or
 move the server, back up and restore the `data` directory to keep settings and
@@ -171,7 +227,7 @@ levels.
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `DISCORD_TOKEN` | Yes | Sofra's bot token |
-| `DISCORD_GUILD_ID` | No | Registers `/welcome`, `/level`, and `/autorole` immediately in one server |
+| `DISCORD_GUILD_ID` | No | Registers all Sofra slash commands immediately in one server |
 | `WELCOME_CONFIG_PATH` | No | Overrides the welcome JSON path |
 | `LEVEL_DATABASE_PATH` | No | Overrides the level SQLite path |
 
@@ -194,12 +250,13 @@ npm run check
 
 After deployment:
 
-1. Run `/autorole role` and select a role below Sofra's highest role.
-2. Run `/autorole status`, `/autorole enable`, and `/autorole test`.
-3. Verify a real join with a trusted test account.
-4. Run `/level status`, optionally configure its channel/rewards, and enable it.
-5. Send messages at least one cooldown apart, then check `/level rank` and
-   `/level leaderboard`.
+1. Confirm the new slash commands appear and assign Sofra only the moderation
+   permissions you plan to use.
+2. Test `/userinfo`, `/serverinfo`, `/poll`, and `/meme`.
+3. Use a private test channel and trusted test account for moderation commands.
+4. Confirm `/lockdown` blocks typing and `/unlock` restores the original state.
+5. Run `/autorole status`, `/level status`, and `/welcome status` to confirm the
+   existing systems remain valid.
 
 For welcomes, run `/welcome channel`, `/welcome enable`, `/welcome status`, and
 `/welcome test`, then verify a real join with a test account or trusted member.
@@ -212,3 +269,6 @@ For welcomes, run `/welcome channel`, `/welcome enable`, `/welcome status`, and
   rejoin. There is no reset command in this focused implementation.
 - Members already above a new reward threshold receive the role after their
   next eligible XP award rather than through a background scan.
+- `/purge` cannot bulk-delete messages older than Discord's 14-day limit.
+- `/meme` depends on the third-party Meme API and returns a friendly error when
+  the service or Wispbyte outbound network is unavailable.
