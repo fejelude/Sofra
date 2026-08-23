@@ -1,8 +1,8 @@
-# Sofra — Welcome & Level Systems
+# Sofra — Welcome, Level & Auto-Role Systems
 
 Sofra is a lightweight Discord bot designed to run continuously on Wispbyte.
-It includes a polished welcome system and an opt-in activity level system with
-XP, public ranks, leaderboards, level-up notifications, and automatic roles.
+It includes a polished welcome system, an opt-in activity level system, and an
+automatic role for new members.
 
 There is no dashboard, web server, image generation, avatar downloading, or
 message archive. Configuration happens through Discord slash commands.
@@ -30,18 +30,27 @@ message archive. Configuration happens through Discord slash commands.
   and Discord API failures
 - Message content is never read or stored
 
+### Auto-role system
+
+- Instantly gives one configured role to each new human member
+- Admin-only setup through `/autorole`
+- Validates Manage Roles, role hierarchy, managed roles, and deleted roles
+- Persistent per-server role and enabled state
+- Duplicate join protection and failure isolation from welcomes and levels
+
 ## Discord setup
 
 1. Open the [Discord Developer Portal](https://discord.com/developers/applications).
 2. Select Sofra, open **Bot**, and enable **Server Members Intent** under
-   **Privileged Gateway Intents**. This remains required for welcome events.
+   **Privileged Gateway Intents**. This is required for welcome and auto-role
+   join events.
 3. Invite Sofra with the `bot` and `applications.commands` scopes.
 4. Give Sofra these permissions in welcome and level-notification channels:
    - View Channel
    - Send Messages (and Send Messages in Threads when the activity channel is a thread)
    - Embed Links
-5. To use automatic level roles, also give Sofra **Manage Roles** and move
-   Sofra's highest role above every reward role.
+5. To use automatic level rewards or auto-role, also give Sofra **Manage
+   Roles** and move Sofra's highest role above every role she needs to assign.
 
 The level system uses the normal **Guild Messages** gateway intent, which is
 requested by the code automatically. Sofra does **not** need Message Content
@@ -54,7 +63,7 @@ and provides the built-in SQLite module used for levels.
 
 1. Set the startup file to `index.js`.
 2. Add the required environment variable `DISCORD_TOKEN`.
-3. Optionally add `DISCORD_GUILD_ID` with your server ID. This registers both
+3. Optionally add `DISCORD_GUILD_ID` with your server ID. This registers all
    slash-command groups immediately in that server. Without it, commands are
    registered globally and Discord may take time to show updates.
 4. Deploy or update the repository and start Sofra.
@@ -111,6 +120,18 @@ Administrative `/level` subcommands require **Manage Server** or Administrator
 permission. Public rank, leaderboard, and rewards commands remain available to
 normal members. Commands cannot be used in DMs.
 
+### Auto-role administration
+
+- `/autorole role role:@role` — choose and validate the role for new members
+- `/autorole enable` — enable assignment after validating the saved role
+- `/autorole disable` — disable assignment while keeping the saved role
+- `/autorole test` — test assignment using the administrator who runs it
+- `/autorole status` — diagnose storage, role existence, permission, and hierarchy
+
+All `/autorole` commands require **Manage Server** or Administrator permission.
+The feature starts disabled and ignores bots. If the configured role is deleted,
+Sofra clears it and disables auto-role safely.
+
 ## Level behavior and defaults
 
 The level system starts **disabled** so existing deployments do not begin
@@ -132,13 +153,14 @@ from assigning managed roles or roles above Sofra's highest role.
 ## Persistence and privacy
 
 Welcome configuration is stored atomically in `data/welcome-config.json`.
-Level configuration, XP, cooldown state, and reward mappings are stored in
-`data/levels.sqlite`. Both paths are ignored by Git.
+Level configuration, XP, cooldown state, reward mappings, and auto-role
+configuration are stored in `data/levels.sqlite`. Both paths are ignored by Git.
 
 The level database stores only the data needed for the feature: server and user
 IDs, total XP, eligible-message count, last award timestamp/message ID, level
-settings, channel ID, and reward role IDs. It does not store message text,
-avatars, full message history, or a permanent event log.
+settings, channel ID, reward role IDs, and the configured auto-role ID. It does
+not store message text, avatars, full message history, join history, or a
+permanent event log.
 
 Normal Wispbyte restarts reload both files automatically. If you fully erase or
 move the server, back up and restore the `data` directory to keep settings and
@@ -149,7 +171,7 @@ levels.
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `DISCORD_TOKEN` | Yes | Sofra's bot token |
-| `DISCORD_GUILD_ID` | No | Registers `/welcome` and `/level` immediately in one server |
+| `DISCORD_GUILD_ID` | No | Registers `/welcome`, `/level`, and `/autorole` immediately in one server |
 | `WELCOME_CONFIG_PATH` | No | Overrides the welcome JSON path |
 | `LEVEL_DATABASE_PATH` | No | Overrides the level SQLite path |
 
@@ -172,10 +194,10 @@ npm run check
 
 After deployment:
 
-1. Run `/level status`.
-2. Optionally run `/level channel` and configure reward roles.
-3. Run `/level enable`.
-4. Run `/level test` to preview the notification.
+1. Run `/autorole role` and select a role below Sofra's highest role.
+2. Run `/autorole status`, `/autorole enable`, and `/autorole test`.
+3. Verify a real join with a trusted test account.
+4. Run `/level status`, optionally configure its channel/rewards, and enable it.
 5. Send messages at least one cooldown apart, then check `/level rank` and
    `/level leaderboard`.
 
