@@ -7,8 +7,9 @@ import {
   MAX_TOTAL_XP,
 } from "./math.js";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
+const MAX_WARNING_HISTORY_PER_MEMBER = 25;
 
 function defaultConfig(guildId) {
   return Object.freeze({
@@ -84,6 +85,9 @@ export class LevelStore {
       database.exec("PRAGMA journal_mode = WAL");
       database.exec("PRAGMA synchronous = NORMAL");
       database.exec("PRAGMA busy_timeout = 3000");
+      database.exec("PRAGMA wal_autocheckpoint = 100");
+      database.exec("PRAGMA journal_size_limit = 1048576");
+      database.exec("PRAGMA temp_store = MEMORY");
 
       const version = database.prepare("PRAGMA user_version").get().user_version;
       if (version > SCHEMA_VERSION) {
@@ -133,6 +137,41 @@ export class LevelStore {
           enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
           role_id TEXT,
           updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS moderation_warning_totals (
+          guild_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          total INTEGER NOT NULL DEFAULT 0 CHECK (total >= 0),
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (guild_id, user_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS moderation_warnings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          guild_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          moderator_id TEXT NOT NULL,
+          reason TEXT NOT NULL,
+          created_at INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS moderation_warnings_member_idx
+          ON moderation_warnings (guild_id, user_id, created_at DESC, id DESC);
+
+        CREATE TABLE IF NOT EXISTS channel_lockdowns (
+          guild_id TEXT NOT NULL,
+          channel_id TEXT NOT NULL,
+          previous_send_messages INTEGER CHECK (
+            previous_send_messages IS NULL OR previous_send_messages IN (0, 1)
+          ),
+          previous_send_messages_in_threads INTEGER CHECK (
+            previous_send_messages_in_threads IS NULL OR
+            previous_send_messages_in_threads IN (0, 1)
+          ),
+          locked_by TEXT NOT NULL,
+          locked_at INTEGER NOT NULL,
+          PRIMARY KEY (guild_id, channel_id)
         );
       `);
 
@@ -286,6 +325,73 @@ export class LevelStore {
           enabled = 0,
           role_id = NULL,
           updated_at = excluded.updated_at
+      `),
+      incrementWarningTotal: this.database.prepare(`
+        INSERT INTO moderation_warning_totals (
+          guild_id,
+          user_id,
+          total,
+          updated_at
+        ) VALUES (?, ?, 1, ?)
+        ON CONFLICT(guild_id, user_id) DO UPDATE SET
+          total = total + 1,
+          updated_at = excluded.updated_at
+        RETURNING total
+      `),
+      insertWarning: this.database.prepare(`
+        INSERT INTO moderation_warnings (
+          guild_id,
+          user_id,
+          moderator_id,
+          reason,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?)
+      `),
+      pruneWarningHistory: this.database.prepare(`
+        DELETE FROM moderation_warnings
+        WHERE guild_id = ? AND user_id = ? AND id NOT IN (
+          SELECT id
+          FROM moderation_warnings
+          WHERE guild_id = ? AND user_id = ?
+          ORDER BY created_at DESC, id DESC
+          LIMIT ${MAX_WARNING_HISTORY_PER_MEMBER}
+        )
+      `),
+      getWarningTotal: this.database.prepare(`
+        SELECT total
+        FROM moderation_warning_totals
+        WHERE guild_id = ? AND user_id = ?
+      `),
+      getRecentWarnings: this.database.prepare(`
+        SELECT id, moderator_id, reason, created_at
+        FROM moderation_warnings
+        WHERE guild_id = ? AND user_id = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+      `),
+      getLockdown: this.database.prepare(`
+        SELECT
+          previous_send_messages,
+          previous_send_messages_in_threads,
+          locked_by,
+          locked_at
+        FROM channel_lockdowns
+        WHERE guild_id = ? AND channel_id = ?
+      `),
+      saveLockdown: this.database.prepare(`
+        INSERT INTO channel_lockdowns (
+          guild_id,
+          channel_id,
+          previous_send_messages,
+          previous_send_messages_in_threads,
+          locked_by,
+          locked_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(guild_id, channel_id) DO NOTHING
+      `),
+      removeLockdown: this.database.prepare(`
+        DELETE FROM channel_lockdowns
+        WHERE guild_id = ? AND channel_id = ?
       `),
     });
   }
@@ -523,6 +629,135 @@ export class LevelStore {
     this.assertReady();
     this.statements.clearAutoRole.run(guildId, Date.now());
     return this.getAutoRoleConfig(guildId);
+  }
+
+  addWarning({ guildId, userId, moderatorId, reason, createdAt = Date.now() }) {
+    validateSnowflake(guildId, "Guild ID");
+    validateSnowflake(userId, "User ID");
+    validateSnowflake(moderatorId, "Moderator ID");
+    validateInteger(createdAt, 0, Number.MAX_SAFE_INTEGER, "Warning timestamp");
+    if (typeof reason !== "string" || reason.trim().length < 1 || reason.length > 500) {
+      throw new Error("Warning reason must contain 1–500 characters.");
+    }
+    this.assertReady();
+
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const normalizedReason = reason.trim();
+      this.statements.insertWarning.run(
+        guildId,
+        userId,
+        moderatorId,
+        normalizedReason,
+        createdAt,
+      );
+      const total = this.statements.incrementWarningTotal.get(
+        guildId,
+        userId,
+        createdAt,
+      ).total;
+      this.statements.pruneWarningHistory.run(
+        guildId,
+        userId,
+        guildId,
+        userId,
+      );
+      this.database.exec("COMMIT");
+      return Object.freeze({ total, reason: normalizedReason, createdAt });
+    } catch (error) {
+      if (this.database.isTransaction) {
+        this.database.exec("ROLLBACK");
+      }
+      throw error;
+    }
+  }
+
+  getWarnings(guildId, userId, limit = 10) {
+    validateSnowflake(guildId, "Guild ID");
+    validateSnowflake(userId, "User ID");
+    validateInteger(limit, 1, 25, "Warning history limit");
+    this.assertReady();
+
+    const total = this.statements.getWarningTotal.get(guildId, userId)?.total ?? 0;
+    const history = this.statements.getRecentWarnings
+      .all(guildId, userId, limit)
+      .map((row) =>
+        Object.freeze({
+          id: row.id,
+          moderatorId: row.moderator_id,
+          reason: row.reason,
+          createdAt: row.created_at,
+        }),
+      );
+    return Object.freeze({ total, history: Object.freeze(history) });
+  }
+
+  getLockdown(guildId, channelId) {
+    validateSnowflake(guildId, "Guild ID");
+    validateSnowflake(channelId, "Channel ID");
+    this.assertReady();
+    const row = this.statements.getLockdown.get(guildId, channelId);
+    if (!row) {
+      return null;
+    }
+    return Object.freeze({
+      previousSendMessages:
+        row.previous_send_messages === null
+          ? null
+          : row.previous_send_messages === 1,
+      previousSendMessagesInThreads:
+        row.previous_send_messages_in_threads === null
+          ? null
+          : row.previous_send_messages_in_threads === 1,
+      lockedBy: row.locked_by,
+      lockedAt: row.locked_at,
+    });
+  }
+
+  saveLockdown({
+    guildId,
+    channelId,
+    previousSendMessages,
+    previousSendMessagesInThreads,
+    lockedBy,
+    lockedAt = Date.now(),
+  }) {
+    validateSnowflake(guildId, "Guild ID");
+    validateSnowflake(channelId, "Channel ID");
+    validateSnowflake(lockedBy, "Moderator ID");
+    validateInteger(lockedAt, 0, Number.MAX_SAFE_INTEGER, "Lockdown timestamp");
+    if (![true, false, null].includes(previousSendMessages)) {
+      throw new Error("Previous Send Messages state must be true, false, or null.");
+    }
+    if (![true, false, null].includes(previousSendMessagesInThreads)) {
+      throw new Error(
+        "Previous Send Messages in Threads state must be true, false, or null.",
+      );
+    }
+    this.assertReady();
+    const value = previousSendMessages === null ? null : previousSendMessages ? 1 : 0;
+    const threadValue =
+      previousSendMessagesInThreads === null
+        ? null
+        : previousSendMessagesInThreads
+          ? 1
+          : 0;
+    const result = this.statements.saveLockdown.run(
+      guildId,
+      channelId,
+      value,
+      threadValue,
+      lockedBy,
+      lockedAt,
+    );
+    return result.changes > 0;
+  }
+
+  removeLockdown(guildId, channelId) {
+    validateSnowflake(guildId, "Guild ID");
+    validateSnowflake(channelId, "Channel ID");
+    this.assertReady();
+    return this.statements.removeLockdown.run(guildId, channelId).changes > 0;
   }
 
   close() {

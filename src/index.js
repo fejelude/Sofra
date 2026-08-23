@@ -1,8 +1,10 @@
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { AutoRoleService } from "./autorole/service.js";
+import { CommunityService } from "./community/service.js";
 import { LevelService } from "./level/service.js";
 import { LevelStore } from "./level/store.js";
 import { logger } from "./logger.js";
+import { ModerationService } from "./moderation/service.js";
 import { registerCommands } from "./register-command.js";
 import { readRuntimeConfig } from "./runtime-config.js";
 import { WelcomeService } from "./welcome/service.js";
@@ -31,6 +33,12 @@ const autoRoleService = new AutoRoleService({
   store: levelStore,
   logger,
 });
+const moderationService = new ModerationService({
+  client,
+  store: levelStore,
+  logger,
+});
+const communityService = new CommunityService({ client, logger });
 
 let shuttingDown = false;
 
@@ -90,7 +98,13 @@ client.on(Events.InteractionCreate, (interaction) => {
     if (await levelService.handleInteraction(interaction)) {
       return;
     }
-    await autoRoleService.handleInteraction(interaction);
+    if (await autoRoleService.handleInteraction(interaction)) {
+      return;
+    }
+    if (await moderationService.handleInteraction(interaction)) {
+      return;
+    }
+    await communityService.handleInteraction(interaction);
   })();
 });
 
@@ -106,6 +120,10 @@ client.on(Events.MessageCreate, (message) => {
 client.on(Events.GuildRoleDelete, (role) => {
   levelService.handleRoleDelete(role);
   autoRoleService.handleRoleDelete(role);
+});
+
+client.on(Events.ChannelDelete, (channel) => {
+  void moderationService.handleChannelDelete(channel);
 });
 
 client.on(Events.Error, (error) => {
