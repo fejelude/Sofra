@@ -1,27 +1,49 @@
+import { levelCommand } from "./level/command.js";
 import { welcomeCommand } from "./welcome/command.js";
 
-async function upsertCommand(manager) {
-  const commands = await manager.fetch();
-  const existing = commands.find((command) => command.name === welcomeCommand.name);
-  const commandData = welcomeCommand.toJSON();
+const commandsToRegister = Object.freeze([welcomeCommand, levelCommand]);
 
-  if (existing) {
-    await existing.edit(commandData);
-    return "updated";
+async function upsertCommands(manager, scope, logger) {
+  const commands = await manager.fetch();
+  const failures = [];
+
+  for (const commandBuilder of commandsToRegister) {
+    const existing = commands.find((command) => command.name === commandBuilder.name);
+    const commandData = commandBuilder.toJSON();
+
+    try {
+      if (existing) {
+        await existing.edit(commandData);
+      } else {
+        await manager.create(commandData);
+      }
+
+      logger.info(
+        "COMMAND_REGISTERED",
+        `/${commandBuilder.name} ${existing ? "updated" : "created"} ${scope}.`,
+      );
+    } catch (error) {
+      failures.push(error);
+      logger.error(
+        "COMMAND_REGISTRATION_ITEM_FAILED",
+        `/${commandBuilder.name} could not be registered ${scope}.`,
+        error,
+      );
+    }
   }
 
-  await manager.create(commandData);
-  return "created";
+  if (failures.length > 0) {
+    throw new AggregateError(failures, "One or more application commands failed.");
+  }
 }
 
-export async function registerWelcomeCommand(client, guildId, logger) {
+export async function registerCommands(client, guildId, logger) {
   if (guildId) {
     const guild = await client.guilds.fetch(guildId);
-    const action = await upsertCommand(guild.commands);
-    logger.info(
-      "COMMAND_REGISTERED",
-      `/welcome ${action} for the configured development server.`,
-      { guildId },
+    await upsertCommands(
+      guild.commands,
+      `for the configured server (${guildId})`,
+      logger,
     );
     return;
   }
@@ -30,6 +52,5 @@ export async function registerWelcomeCommand(client, guildId, logger) {
     throw new Error("Discord application data was unavailable after the ready event.");
   }
 
-  const action = await upsertCommand(client.application.commands);
-  logger.info("COMMAND_REGISTERED", `/welcome ${action} globally.`);
+  await upsertCommands(client.application.commands, "globally", logger);
 }

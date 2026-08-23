@@ -2,16 +2,16 @@
   "name": "sofra-main-usage",
   "version": "1.0.0",
   "private": true,
-  "description": "Lightweight Discord welcome system for Sofra.",
+  "description": "Lightweight Discord welcome and leveling systems for Sofra.",
   "type": "module",
   "main": "index.js",
   "engines": {
-    "node": ">=20.12.0"
+    "node": ">=24.15.0"
   },
   "scripts": {
     "start": "node index.js",
     "test": "node --test",
-    "check": "node --check index.js && node --check src/index.js && node --check src/logger.js && node --check src/runtime-config.js && node --check src/register-command.js && node --check src/welcome/command.js && node --check src/welcome/embed.js && node --check src/welcome/messages.js && node --check src/welcome/permissions.js && node --check src/welcome/service.js && node --check src/welcome/store.js && node --check src/welcome/template.js"
+    "check": "node --check index.js && node --check src/index.js && node --check src/logger.js && node --check src/runtime-config.js && node --check src/register-command.js && node --check src/level/channel.js && node --check src/level/command.js && node --check src/level/embeds.js && node --check src/level/math.js && node --check src/level/roles.js && node --check src/level/service.js && node --check src/level/store.js && node --check src/welcome/command.js && node --check src/welcome/embed.js && node --check src/welcome/messages.js && node --check src/welcome/permissions.js && node --check src/welcome/service.js && node --check src/welcome/store.js && node --check src/welcome/template.js"
   },
   "dependencies": {
     "discord.js": "14.27.0"

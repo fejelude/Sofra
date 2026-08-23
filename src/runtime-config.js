@@ -7,9 +7,13 @@ const CONFIG_ENVIRONMENT_KEYS = [
   "DISCORD_TOKEN",
   "DISCORD_GUILD_ID",
   "WELCOME_CONFIG_PATH",
+  "LEVEL_DATABASE_PATH",
 ];
 const DEFAULT_STORE_PATH = fileURLToPath(
   new URL("../data/welcome-config.json", import.meta.url),
+);
+const DEFAULT_LEVEL_DATABASE_PATH = fileURLToPath(
+  new URL("../data/levels.sqlite", import.meta.url),
 );
 
 function loadOptionalDotEnv() {
@@ -58,10 +62,14 @@ export function readRuntimeConfig() {
   }
 
   const configuredPath = process.env.WELCOME_CONFIG_PATH?.trim();
+  const configuredLevelDatabasePath = process.env.LEVEL_DATABASE_PATH?.trim();
 
   return Object.freeze({
     token,
     guildId: optionalSnowflake("DISCORD_GUILD_ID"),
     storePath: configuredPath ? resolve(process.cwd(), configuredPath) : DEFAULT_STORE_PATH,
+    levelDatabasePath: configuredLevelDatabasePath
+      ? resolve(process.cwd(), configuredLevelDatabasePath)
+      : DEFAULT_LEVEL_DATABASE_PATH,
   });
 }
