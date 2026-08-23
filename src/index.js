@@ -1,4 +1,5 @@
 import { Client, Events, GatewayIntentBits } from "discord.js";
+import { AutoRoleService } from "./autorole/service.js";
 import { LevelService } from "./level/service.js";
 import { LevelStore } from "./level/store.js";
 import { logger } from "./logger.js";
@@ -25,6 +26,11 @@ const levelStore = new LevelStore({
   logger,
 });
 const levelService = new LevelService({ client, store: levelStore, logger });
+const autoRoleService = new AutoRoleService({
+  client,
+  store: levelStore,
+  logger,
+});
 
 let shuttingDown = false;
 
@@ -81,12 +87,16 @@ client.on(Events.InteractionCreate, (interaction) => {
     if (await welcomeService.handleInteraction(interaction)) {
       return;
     }
-    await levelService.handleInteraction(interaction);
+    if (await levelService.handleInteraction(interaction)) {
+      return;
+    }
+    await autoRoleService.handleInteraction(interaction);
   })();
 });
 
 client.on(Events.GuildMemberAdd, (member) => {
   void welcomeService.handleMemberJoin(member);
+  void autoRoleService.handleMemberJoin(member);
 });
 
 client.on(Events.MessageCreate, (message) => {
@@ -95,6 +105,7 @@ client.on(Events.MessageCreate, (message) => {
 
 client.on(Events.GuildRoleDelete, (role) => {
   levelService.handleRoleDelete(role);
+  autoRoleService.handleRoleDelete(role);
 });
 
 client.on(Events.Error, (error) => {

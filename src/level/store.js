@@ -7,7 +7,7 @@ import {
   MAX_TOTAL_XP,
 } from "./math.js";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 
 function defaultConfig(guildId) {
@@ -33,6 +33,14 @@ function mapConfig(row, guildId) {
     xpMin: row.xp_min,
     xpMax: row.xp_max,
     cooldownSeconds: row.cooldown_seconds,
+  });
+}
+
+function mapAutoRoleConfig(row, guildId) {
+  return Object.freeze({
+    guildId,
+    enabled: row?.enabled === 1,
+    roleId: row?.role_id ?? null,
   });
 }
 
@@ -119,6 +127,13 @@ export class LevelStore {
 
         CREATE INDEX IF NOT EXISTS level_role_rewards_level_idx
           ON level_role_rewards (guild_id, required_level ASC, role_id ASC);
+
+        CREATE TABLE IF NOT EXISTS auto_role_config (
+          guild_id TEXT PRIMARY KEY,
+          enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+          role_id TEXT,
+          updated_at INTEGER NOT NULL
+        );
       `);
 
       if (version < SCHEMA_VERSION) {
@@ -243,6 +258,34 @@ export class LevelStore {
       removeReward: this.database.prepare(`
         DELETE FROM level_role_rewards
         WHERE guild_id = ? AND role_id = ?
+      `),
+      getAutoRole: this.database.prepare(`
+        SELECT enabled, role_id
+        FROM auto_role_config
+        WHERE guild_id = ?
+      `),
+      setAutoRole: this.database.prepare(`
+        INSERT INTO auto_role_config (guild_id, role_id, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET
+          enabled = 0,
+          role_id = excluded.role_id,
+          updated_at = excluded.updated_at
+      `),
+      setAutoRoleEnabled: this.database.prepare(`
+        INSERT INTO auto_role_config (guild_id, enabled, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET
+          enabled = excluded.enabled,
+          updated_at = excluded.updated_at
+      `),
+      clearAutoRole: this.database.prepare(`
+        INSERT INTO auto_role_config (guild_id, enabled, role_id, updated_at)
+        VALUES (?, 0, NULL, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET
+          enabled = 0,
+          role_id = NULL,
+          updated_at = excluded.updated_at
       `),
     });
   }
@@ -449,6 +492,37 @@ export class LevelStore {
         }),
       ),
     );
+  }
+
+  getAutoRoleConfig(guildId) {
+    validateSnowflake(guildId, "Guild ID");
+    this.assertReady();
+    return mapAutoRoleConfig(this.statements.getAutoRole.get(guildId), guildId);
+  }
+
+  setAutoRole(guildId, roleId) {
+    validateSnowflake(guildId, "Guild ID");
+    validateSnowflake(roleId, "Role ID");
+    this.assertReady();
+    this.statements.setAutoRole.run(guildId, roleId, Date.now());
+    return this.getAutoRoleConfig(guildId);
+  }
+
+  setAutoRoleEnabled(guildId, enabled) {
+    validateSnowflake(guildId, "Guild ID");
+    if (typeof enabled !== "boolean") {
+      throw new Error("Auto-role enabled state must be true or false.");
+    }
+    this.assertReady();
+    this.statements.setAutoRoleEnabled.run(guildId, enabled ? 1 : 0, Date.now());
+    return this.getAutoRoleConfig(guildId);
+  }
+
+  clearAutoRole(guildId) {
+    validateSnowflake(guildId, "Guild ID");
+    this.assertReady();
+    this.statements.clearAutoRole.run(guildId, Date.now());
+    return this.getAutoRoleConfig(guildId);
   }
 
   close() {

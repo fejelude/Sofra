@@ -1,7 +1,12 @@
+import { autoRoleCommand } from "./autorole/command.js";
 import { levelCommand } from "./level/command.js";
 import { welcomeCommand } from "./welcome/command.js";
 
-const commandsToRegister = Object.freeze([welcomeCommand, levelCommand]);
+const commandsToRegister = Object.freeze([
+  welcomeCommand,
+  levelCommand,
+  autoRoleCommand,
+]);
 
 async function upsertCommands(manager, scope, logger) {
   const commands = await manager.fetch();
