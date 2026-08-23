@@ -7,7 +7,7 @@ import {
   MAX_TOTAL_XP,
 } from "./math.js";
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 const MAX_WARNING_HISTORY_PER_MEMBER = 25;
 
@@ -42,6 +42,14 @@ function mapAutoRoleConfig(row, guildId) {
     guildId,
     enabled: row?.enabled === 1,
     roleId: row?.role_id ?? null,
+  });
+}
+
+function mapModLogConfig(row, guildId) {
+  return Object.freeze({
+    guildId,
+    enabled: row?.enabled === 1,
+    channelId: row?.channel_id ?? null,
   });
 }
 
@@ -172,6 +180,13 @@ export class LevelStore {
           locked_by TEXT NOT NULL,
           locked_at INTEGER NOT NULL,
           PRIMARY KEY (guild_id, channel_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS moderation_log_config (
+          guild_id TEXT PRIMARY KEY,
+          enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+          channel_id TEXT,
+          updated_at INTEGER NOT NULL
         );
       `);
 
@@ -392,6 +407,33 @@ export class LevelStore {
       removeLockdown: this.database.prepare(`
         DELETE FROM channel_lockdowns
         WHERE guild_id = ? AND channel_id = ?
+      `),
+      getModLogConfig: this.database.prepare(`
+        SELECT enabled, channel_id
+        FROM moderation_log_config
+        WHERE guild_id = ?
+      `),
+      setModLogChannel: this.database.prepare(`
+        INSERT INTO moderation_log_config (guild_id, channel_id, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET
+          channel_id = excluded.channel_id,
+          updated_at = excluded.updated_at
+      `),
+      setModLogEnabled: this.database.prepare(`
+        INSERT INTO moderation_log_config (guild_id, enabled, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET
+          enabled = excluded.enabled,
+          updated_at = excluded.updated_at
+      `),
+      clearModLogChannel: this.database.prepare(`
+        INSERT INTO moderation_log_config (guild_id, enabled, channel_id, updated_at)
+        VALUES (?, 0, NULL, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET
+          enabled = 0,
+          channel_id = NULL,
+          updated_at = excluded.updated_at
       `),
     });
   }
@@ -758,6 +800,37 @@ export class LevelStore {
     validateSnowflake(channelId, "Channel ID");
     this.assertReady();
     return this.statements.removeLockdown.run(guildId, channelId).changes > 0;
+  }
+
+  getModLogConfig(guildId) {
+    validateSnowflake(guildId, "Guild ID");
+    this.assertReady();
+    return mapModLogConfig(this.statements.getModLogConfig.get(guildId), guildId);
+  }
+
+  setModLogChannel(guildId, channelId) {
+    validateSnowflake(guildId, "Guild ID");
+    validateSnowflake(channelId, "Channel ID");
+    this.assertReady();
+    this.statements.setModLogChannel.run(guildId, channelId, Date.now());
+    return this.getModLogConfig(guildId);
+  }
+
+  setModLogEnabled(guildId, enabled) {
+    validateSnowflake(guildId, "Guild ID");
+    if (typeof enabled !== "boolean") {
+      throw new Error("Moderation-log enabled state must be true or false.");
+    }
+    this.assertReady();
+    this.statements.setModLogEnabled.run(guildId, enabled ? 1 : 0, Date.now());
+    return this.getModLogConfig(guildId);
+  }
+
+  clearModLogChannel(guildId) {
+    validateSnowflake(guildId, "Guild ID");
+    this.assertReady();
+    this.statements.clearModLogChannel.run(guildId, Date.now());
+    return this.getModLogConfig(guildId);
   }
 
   close() {

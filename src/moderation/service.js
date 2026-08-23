@@ -58,10 +58,11 @@ function permissionOverwriteState(overwrite, permission) {
 }
 
 export class ModerationService {
-  constructor({ client, store, logger }) {
+  constructor({ client, store, logger, modLogService = null }) {
     this.client = client;
     this.store = store;
     this.logger = logger;
+    this.modLogService = modLogService;
   }
 
   async handleInteraction(interaction) {
@@ -143,6 +144,12 @@ export class ModerationService {
     }
 
     const limitNote = requested === "all" ? " Discord only bulk-deletes messages newer than 14 days; each run is capped at 1,000." : " Messages older than 14 days are skipped by Discord.";
+    await this.logAction(interaction, {
+      action: "purge",
+      channel,
+      reason: "Bulk message cleanup",
+      details: `${deleted} message(s) deleted • requested: ${requested}`,
+    });
     await interaction.editReply(`🫧 Deleted **${deleted}** message(s).${limitNote}`);
   }
 
@@ -155,6 +162,12 @@ export class ModerationService {
     await interaction.guild.members.ban(user.id, {
       deleteMessageSeconds: deleteDays * 86_400,
       reason: auditReason(interaction, reason),
+    });
+    await this.logAction(interaction, {
+      action: "ban",
+      target: user,
+      reason,
+      details: `Deleted message history: ${deleteDays} day(s)`,
     });
     const dmSent = await this.sendModerationDm(user, {
       guild: interaction.guild,
@@ -172,6 +185,11 @@ export class ModerationService {
     if (!member || !(await this.canActOnMember(interaction, member, "kick"))) return;
     const reason = interaction.options.getString("reason") || "No reason provided";
     await member.kick(auditReason(interaction, reason));
+    await this.logAction(interaction, {
+      action: "kick",
+      target: member.user,
+      reason,
+    });
     const dmSent = await this.sendModerationDm(member.user, {
       guild: interaction.guild,
       action: "You were removed from the server",
@@ -189,6 +207,12 @@ export class ModerationService {
     const minutes = interaction.options.getInteger("duration-minutes", true);
     const reason = interaction.options.getString("reason") || "No reason provided";
     await member.timeout(minutes * 60_000, auditReason(interaction, reason));
+    await this.logAction(interaction, {
+      action: "timeout",
+      target: member.user,
+      reason,
+      details: `Duration: ${formatDuration(minutes)}`,
+    });
     const dmSent = await this.sendModerationDm(member.user, {
       guild: interaction.guild,
       action: "You were temporarily muted",
@@ -205,6 +229,12 @@ export class ModerationService {
     if (!member || !(await this.canActOnMember(interaction, member, "unmute"))) return;
     const reason = interaction.options.getString("reason") || "No reason provided";
     await member.timeout(null, auditReason(interaction, reason));
+    await this.logAction(interaction, {
+      action: "untimeout",
+      target: member.user,
+      reason,
+      details: "Timeout ended before its automatic expiration.",
+    });
     const dmSent = await this.sendModerationDm(member.user, {
       guild: interaction.guild,
       action: "Your mute was removed",
@@ -231,6 +261,12 @@ export class ModerationService {
       userId: member.id,
       moderatorId: interaction.user.id,
       reason,
+    });
+    await this.logAction(interaction, {
+      action: "warn",
+      target: member.user,
+      reason,
+      details: `Total recorded offenses: ${warning.total}`,
     });
     const dmSent = await this.sendModerationDm(member.user, {
       guild: interaction.guild,
@@ -281,6 +317,12 @@ export class ModerationService {
       return;
     }
     await interaction.guild.bans.remove(userId, auditReason(interaction, reason));
+    await this.logAction(interaction, {
+      action: "unban",
+      target: ban.user,
+      targetId: userId,
+      reason,
+    });
     await interaction.editReply(
       `🌸 **${escapeMarkdown(ban.user.tag)}** (${userId}) was unbanned.`,
     );
@@ -333,6 +375,12 @@ export class ModerationService {
       this.store.removeLockdown(interaction.guild.id, channel.id);
       throw error;
     }
+    await this.logAction(interaction, {
+      action: "lockdown",
+      channel,
+      reason,
+      details: "Send Messages and Send Messages in Threads denied for @everyone.",
+    });
     await interaction.editReply(`🔒 ${channel} is now locked for normal members.`);
   }
 
@@ -361,6 +409,12 @@ export class ModerationService {
       { reason: auditReason(interaction, reason) },
     );
     this.store.removeLockdown(interaction.guild.id, channel.id);
+    await this.logAction(interaction, {
+      action: "unlock",
+      channel,
+      reason,
+      details: "The exact pre-lockdown typing permissions were restored.",
+    });
     await interaction.editReply(`🔓 ${channel} was restored to its pre-lockdown state.`);
   }
 
@@ -370,6 +424,12 @@ export class ModerationService {
     const seconds = interaction.options.getInteger("seconds", true);
     const reason = interaction.options.getString("reason") || "Slowmode updated";
     await channel.setRateLimitPerUser(seconds, auditReason(interaction, reason));
+    await this.logAction(interaction, {
+      action: "slowmode",
+      channel,
+      reason,
+      details: seconds === 0 ? "Slowmode disabled" : `${seconds} second cooldown`,
+    });
     await interaction.editReply(
       seconds === 0
         ? `🫧 Slowmode was disabled in ${channel}.`
@@ -494,6 +554,15 @@ export class ModerationService {
     } catch {
       return false;
     }
+  }
+
+  async logAction(interaction, payload) {
+    if (!this.modLogService) return false;
+    return this.modLogService.logAction(interaction.guild, {
+      ...payload,
+      moderator: interaction.user,
+      source: "Sofra command",
+    });
   }
 
   async replyWithFailure(interaction, command) {

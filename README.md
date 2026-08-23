@@ -49,6 +49,17 @@ message archive. Configuration happens through Discord slash commands.
 - Discord-native single-choice polls that survive bot restarts
 - Retried, validated SFW memes from a small subreddit allowlist
 
+### Private moderation logs
+
+- One-command creation of a private `Moderation` category and `#staff-logs`
+- Persistent per-server channel and enabled state
+- Aesthetic records for bans, unbans, kicks, warnings, timeouts, purges,
+  lockdowns, unlocks, slowmode, and channel-permission moderation
+- Mirrors supported manual Discord moderation through audit-log events while
+  deduplicating actions performed through Sofra
+- Stores only configuration; moderation log messages live in Discord and are
+  never duplicated into a growing local event archive
+
 ## Discord setup
 
 1. Open the [Discord Developer Portal](https://discord.com/developers/applications).
@@ -68,10 +79,16 @@ message archive. Configuration happens through Discord slash commands.
    lockdowns additionally require Sofra to have **Manage Roles**, because they
    safely edit the `@everyone` channel permission overwrite.
 7. Polls require **Send Messages** and **Create Polls** in the channel.
+8. Moderation logs require **View Audit Log** to detect supported actions made
+   manually through Discord. `/modlog setup` additionally needs **Manage
+   Channels** and **Manage Roles**; the destination needs **View Channel**,
+   **Send Messages**, and **Embed Links**.
 
 The level system uses the normal **Guild Messages** gateway intent, which is
 requested by the code automatically. Sofra does **not** need Message Content
 Intent or Presence Intent. The level system deliberately ignores message text.
+Moderation logs add Discord's non-privileged **Guild Moderation** intent for
+live audit-log events; it does not require another Developer Portal toggle.
 
 ## Wispbyte deployment
 
@@ -174,6 +191,21 @@ hierarchies.
 Discord bulk deletion cannot remove messages older than 14 days. `/purge all`
 therefore deletes all recent messages it can find, up to 1,000 per command.
 
+### Moderation-log administration
+
+- `/modlog setup` — create/configure `Moderation → #staff-logs`, keep it hidden
+  from `@everyone`, send a preview, and enable logging
+- `/modlog channel channel:#channel` — use an existing private text channel
+- `/modlog enable` — enable logs after validating the configured channel
+- `/modlog disable` — pause logs while retaining the saved channel
+- `/modlog test` — send a preview even while logging is disabled
+- `/modlog status` — diagnose channel access, audit-log access, storage, and
+  configuration validity
+
+All `/modlog` commands require **Manage Server** or Administrator. The automatic
+setup allows Sofra and server administrators into the private area; add explicit
+permission access for other staff roles that should read `#staff-logs`.
+
 ### Information and community
 
 - `/userinfo member` — show account creation, join date, IDs, avatar, and roles
@@ -207,7 +239,8 @@ from assigning managed roles or roles above Sofra's highest role.
 
 Welcome configuration is stored atomically in `data/welcome-config.json`.
 Level configuration, XP, cooldown state, reward mappings, auto-role settings,
-warnings, and active lockdown restoration data are stored in
+warnings, active lockdown restoration data, and moderation-log configuration
+are stored in
 `data/levels.sqlite`. Both paths are ignored by Git.
 
 The level database stores only the data needed for the feature: server and user
@@ -216,7 +249,8 @@ settings, channel ID, reward role IDs, the configured auto-role ID, warning
 reasons/moderator IDs/timestamps, and temporary lockdown state. Detailed
 warning history is limited to the latest 25 entries per member while the total
 offense count remains accurate. Sofra does not store ordinary message text,
-avatars, purged messages, polls, memes, full message history, or join history.
+avatars, purged messages, moderation-log events, polls, memes, full message
+history, or join history.
 
 Normal Wispbyte restarts reload both files automatically. If you fully erase or
 move the server, back up and restore the `data` directory to keep settings and
@@ -253,9 +287,12 @@ After deployment:
 1. Confirm the new slash commands appear and assign Sofra only the moderation
    permissions you plan to use.
 2. Test `/userinfo`, `/serverinfo`, `/poll`, and `/meme`.
-3. Use a private test channel and trusted test account for moderation commands.
-4. Confirm `/lockdown` blocks typing and `/unlock` restores the original state.
-5. Run `/autorole status`, `/level status`, and `/welcome status` to confirm the
+3. Run `/modlog setup`, add any non-administrator staff roles to the private
+   category, then verify `/modlog status` and `/modlog test`.
+4. Use a private test channel and trusted test account for moderation commands;
+   confirm each successful action appears once in `#staff-logs`.
+5. Confirm `/lockdown` blocks typing and `/unlock` restores the original state.
+6. Run `/autorole status`, `/level status`, and `/welcome status` to confirm the
    existing systems remain valid.
 
 For welcomes, run `/welcome channel`, `/welcome enable`, `/welcome status`, and
@@ -272,3 +309,6 @@ For welcomes, run `/welcome channel`, `/welcome enable`, `/welcome status`, and
 - `/purge` cannot bulk-delete messages older than Discord's 14-day limit.
 - `/meme` depends on the third-party Meme API and returns a friendly error when
   the service or Wispbyte outbound network is unavailable.
+- Discord does not create an audit-log entry when a timeout expires naturally,
+  so automatic timeout expiration has no moderator-attributed log. Timeouts
+  applied or removed through Sofra, and manual timeout changes, are logged.

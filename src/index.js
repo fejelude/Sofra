@@ -4,6 +4,7 @@ import { CommunityService } from "./community/service.js";
 import { LevelService } from "./level/service.js";
 import { LevelStore } from "./level/store.js";
 import { logger } from "./logger.js";
+import { ModLogService } from "./modlog/service.js";
 import { ModerationService } from "./moderation/service.js";
 import { registerCommands } from "./register-command.js";
 import { readRuntimeConfig } from "./runtime-config.js";
@@ -16,6 +17,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildModeration,
   ],
 });
 const store = new JsonWelcomeConfigStore({
@@ -33,10 +35,16 @@ const autoRoleService = new AutoRoleService({
   store: levelStore,
   logger,
 });
+const modLogService = new ModLogService({
+  client,
+  store: levelStore,
+  logger,
+});
 const moderationService = new ModerationService({
   client,
   store: levelStore,
   logger,
+  modLogService,
 });
 const communityService = new CommunityService({ client, logger });
 
@@ -101,6 +109,9 @@ client.on(Events.InteractionCreate, (interaction) => {
     if (await autoRoleService.handleInteraction(interaction)) {
       return;
     }
+    if (await modLogService.handleInteraction(interaction)) {
+      return;
+    }
     if (await moderationService.handleInteraction(interaction)) {
       return;
     }
@@ -124,6 +135,11 @@ client.on(Events.GuildRoleDelete, (role) => {
 
 client.on(Events.ChannelDelete, (channel) => {
   void moderationService.handleChannelDelete(channel);
+  void modLogService.handleChannelDelete(channel);
+});
+
+client.on(Events.GuildAuditLogEntryCreate, (entry, guild) => {
+  void modLogService.handleAuditLogEntry(entry, guild);
 });
 
 client.on(Events.Error, (error) => {

@@ -107,3 +107,58 @@ test("schema version 2 upgrades without losing level or auto-role settings", asy
   assert.equal(upgraded.getWarnings(GUILD_ID, USER_ID).total, 0);
   upgraded.close();
 });
+
+test("moderation-log configuration persists and clears safely", async (t) => {
+  const filePath = await fixture(t);
+  const first = new LevelStore({ filePath, logger });
+  await first.init();
+
+  assert.deepEqual(first.getModLogConfig(GUILD_ID), {
+    guildId: GUILD_ID,
+    enabled: false,
+    channelId: null,
+  });
+  first.setModLogChannel(GUILD_ID, CHANNEL_ID);
+  first.setModLogEnabled(GUILD_ID, true);
+  first.close();
+
+  const second = new LevelStore({ filePath, logger });
+  await second.init();
+  assert.deepEqual(second.getModLogConfig(GUILD_ID), {
+    guildId: GUILD_ID,
+    enabled: true,
+    channelId: CHANNEL_ID,
+  });
+  assert.deepEqual(second.clearModLogChannel(GUILD_ID), {
+    guildId: GUILD_ID,
+    enabled: false,
+    channelId: null,
+  });
+  second.close();
+});
+
+test("schema version 3 upgrades automatically with moderation-log storage", async (t) => {
+  const filePath = await fixture(t);
+  const original = new LevelStore({ filePath, logger });
+  await original.init();
+  original.setEnabled(GUILD_ID, true);
+  original.close();
+
+  const { DatabaseSync } = await import("node:sqlite");
+  const old = new DatabaseSync(filePath);
+  old.exec(`
+    DROP TABLE moderation_log_config;
+    PRAGMA user_version = 3;
+  `);
+  old.close();
+
+  const upgraded = new LevelStore({ filePath, logger });
+  await upgraded.init();
+  assert.equal(upgraded.getConfig(GUILD_ID).enabled, true);
+  assert.deepEqual(upgraded.getModLogConfig(GUILD_ID), {
+    guildId: GUILD_ID,
+    enabled: false,
+    channelId: null,
+  });
+  upgraded.close();
+});

@@ -11,6 +11,7 @@ const CHANNEL_ID = "1540628204333703201";
 
 function fixture() {
   const logs = [];
+  const moderationLogs = [];
   const logger = {
     info: (...args) => logs.push(["info", ...args]),
     warn: (...args) => logs.push(["warn", ...args]),
@@ -90,7 +91,13 @@ function fixture() {
       displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png",
     },
   };
-  const service = new ModerationService({ client, store, logger });
+  const modLogService = {
+    logAction: async (_guild, payload) => {
+      moderationLogs.push(payload);
+      return true;
+    },
+  };
+  const service = new ModerationService({ client, store, logger, modLogService });
   return {
     service,
     store,
@@ -98,6 +105,7 @@ function fixture() {
     user,
     member,
     logs,
+    moderationLogs,
     dms: () => dms,
     warningTotal: () => warningTotal,
   };
@@ -137,6 +145,8 @@ test("warn persists the offense and sends an aesthetic private DM", async () => 
 
   assert.equal(current.warningTotal(), 1);
   assert.equal(current.dms(), 1);
+  assert.equal(current.moderationLogs.length, 1);
+  assert.equal(current.moderationLogs[0].action, "warn");
   assert.match(reply(), /Total offenses: \*\*1\*\*/);
 });
 
