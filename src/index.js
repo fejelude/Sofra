@@ -8,6 +8,7 @@ import { ModLogService } from "./modlog/service.js";
 import { ModerationService } from "./moderation/service.js";
 import { registerCommands } from "./register-command.js";
 import { readRuntimeConfig } from "./runtime-config.js";
+import { TicketService } from "./ticket/service.js";
 import { WelcomeService } from "./welcome/service.js";
 import { JsonWelcomeConfigStore } from "./welcome/store.js";
 
@@ -47,6 +48,12 @@ const moderationService = new ModerationService({
   modLogService,
 });
 const communityService = new CommunityService({ client, logger });
+const ticketService = new TicketService({
+  client,
+  store: levelStore,
+  logger,
+  modLogService,
+});
 
 let shuttingDown = false;
 
@@ -112,6 +119,9 @@ client.on(Events.InteractionCreate, (interaction) => {
     if (await modLogService.handleInteraction(interaction)) {
       return;
     }
+    if (await ticketService.handleInteraction(interaction)) {
+      return;
+    }
     if (await moderationService.handleInteraction(interaction)) {
       return;
     }
@@ -136,6 +146,7 @@ client.on(Events.GuildRoleDelete, (role) => {
 client.on(Events.ChannelDelete, (channel) => {
   void moderationService.handleChannelDelete(channel);
   void modLogService.handleChannelDelete(channel);
+  void ticketService.handleChannelDelete(channel);
 });
 
 client.on(Events.GuildAuditLogEntryCreate, (entry, guild) => {
