@@ -60,6 +60,16 @@ message archive. Configuration happens through Discord slash commands.
 - Stores only configuration; moderation log messages live in Discord and are
   never duplicated into a growing local event archive
 
+### Private ticket system
+
+- Admin-posted pink ticket panel for Bug Reports, Player Reports, and Other help
+- Private numbered channels with persistent IDs such as `bug-0001`
+- Access restricted to the creator, configured staff roles, and Sofra
+- One open ticket of each type per member to prevent spam
+- Persistent staff controls to claim, close, reopen, confirm, and delete tickets
+- Ticket creation, claim, close, reopen, and deletion events sent through the
+  existing private Staff Logs configuration
+
 ## Discord setup
 
 1. Open the [Discord Developer Portal](https://discord.com/developers/applications).
@@ -83,6 +93,8 @@ message archive. Configuration happens through Discord slash commands.
    manually through Discord. `/modlog setup` additionally needs **Manage
    Channels** and **Manage Roles**; the destination needs **View Channel**,
    **Send Messages**, and **Embed Links**.
+9. Tickets require **Manage Channels**. Sofra also needs **View Channel**, **Send
+   Messages**, and **Embed Links** in the selected panel and Staff Logs channels.
 
 The level system uses the normal **Guild Messages** gateway intent, which is
 requested by the code automatically. Sofra does **not** need Message Content
@@ -206,6 +218,25 @@ All `/modlog` commands require **Manage Server** or Administrator. The automatic
 setup allows Sofra and server administrators into the private area; add explicit
 permission access for other staff roles that should read `#staff-logs`.
 
+### Ticket administration and controls
+
+- `/ticket-channel panel-channel:#tickets ticket-category:Tickets
+  staff-role:@Moderator [staff-role-2..5] [staff-logs:#staff-logs]` — configure
+  ticket access and post a new persistent panel
+- **Claim Ticket** — record which staff member is handling the ticket
+- **Close Ticket** — change the status to Closed and make the channel read-only
+  for its creator without deleting anything
+- **Reopen Ticket** — restore the creator's ability to reply, unless they already
+  have another open ticket of that type
+- **Delete Ticket** — show a separate confirmation before permanently deleting
+  the ticket channel
+
+`/ticket-channel` requires **Manage Server** or Administrator. The first staff
+role is required and up to four additional roles may be configured. The optional
+`staff-logs` option updates the same destination used by `/modlog`; when omitted,
+Sofra reuses the existing configured Staff Logs channel. Ticket setup enables
+that shared logging configuration.
+
 ### Information and community
 
 - `/userinfo member` — show account creation, join date, IDs, avatar, and roles
@@ -239,8 +270,9 @@ from assigning managed roles or roles above Sofra's highest role.
 
 Welcome configuration is stored atomically in `data/welcome-config.json`.
 Level configuration, XP, cooldown state, reward mappings, auto-role settings,
-warnings, active lockdown restoration data, and moderation-log configuration
-are stored in
+warnings, active lockdown restoration data, moderation-log configuration,
+ticket settings, staff-role access, increasing ticket IDs, status, claim, and
+channel/message references are stored in
 `data/levels.sqlite`. Both paths are ignored by Git.
 
 The level database stores only the data needed for the feature: server and user
@@ -250,7 +282,7 @@ reasons/moderator IDs/timestamps, and temporary lockdown state. Detailed
 warning history is limited to the latest 25 entries per member while the total
 offense count remains accurate. Sofra does not store ordinary message text,
 avatars, purged messages, moderation-log events, polls, memes, full message
-history, or join history.
+history, ticket conversation contents, or join history.
 
 Normal Wispbyte restarts reload both files automatically. If you fully erase or
 move the server, back up and restore the `data` directory to keep settings and

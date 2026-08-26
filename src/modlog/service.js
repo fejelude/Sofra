@@ -113,6 +113,43 @@ export function buildModLogEmbed({
   return embed;
 }
 
+const TICKET_LOG_STYLES = Object.freeze({
+  created: { emoji: "🎫", title: "Ticket Created", color: 0xf4a7c2 },
+  claimed: { emoji: "👤", title: "Ticket Claimed", color: 0xd8b4e8 },
+  closed: { emoji: "🔒", title: "Ticket Closed", color: 0xef9a9a },
+  reopened: { emoji: "🔓", title: "Ticket Reopened", color: 0xa5d6a7 },
+  deleted: { emoji: "🗑️", title: "Ticket Deleted", color: 0xb0bec5 },
+});
+
+export function buildTicketLogEmbed({
+  event,
+  ticket,
+  actor,
+  channel,
+  timestamp = Date.now(),
+}) {
+  const style = TICKET_LOG_STYLES[event] ?? TICKET_LOG_STYLES.created;
+  const typeNames = { bug: "Bug Report", report: "Player Report", other: "Other" };
+  const embed = new EmbedBuilder()
+    .setColor(style.color)
+    .setAuthor({ name: "♡ Sofra Staff Logs" })
+    .setTitle(`${style.emoji} ${style.title}`)
+    .addFields(
+      { name: "🎟️ Ticket ID", value: `#${String(ticket.id).padStart(4, "0")}`, inline: true },
+      { name: "🌸 Ticket Type", value: typeNames[ticket.type] ?? "Unknown", inline: true },
+      { name: "🎀 Original Creator", value: `<@${ticket.creatorId}>\n\`${ticket.creatorId}\``, inline: true },
+    )
+    .setFooter({ text: "Sofra ♡ Ticket Moderation Record" })
+    .setTimestamp(timestamp);
+  if (actor) {
+    embed.addFields({ name: "🛡️ Moderator", value: identity(actor), inline: true });
+  }
+  if (channel) {
+    embed.addFields({ name: "☁️ Ticket Channel", value: channelIdentity(channel), inline: true });
+  }
+  return embed;
+}
+
 export class ModLogService {
   constructor({ client, store, logger }) {
     this.client = client;
@@ -354,6 +391,29 @@ export class ModLogService {
         "A moderation action completed, but its staff log could not be sent.",
         error,
         { guildId: guild?.id, action: payload?.action },
+      );
+      return false;
+    }
+  }
+
+  async logTicketEvent(guild, payload) {
+    try {
+      if (!this.store.getHealth().ok) return false;
+      const config = this.store.getModLogConfig(guild.id);
+      if (!config.enabled) return false;
+      const channel = await this.resolveChannel(guild, config.channelId);
+      if (!this.validateChannel(guild, channel).valid) return false;
+      await channel.send({
+        embeds: [buildTicketLogEmbed(payload)],
+        allowedMentions: { parse: [] },
+      });
+      return true;
+    } catch (error) {
+      this.logger.error(
+        "TICKET_LOG_SEND_FAILED",
+        "A ticket event completed, but its staff log could not be sent.",
+        error,
+        { guildId: guild?.id, event: payload?.event, ticketId: payload?.ticket?.id },
       );
       return false;
     }
