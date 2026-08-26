@@ -7,7 +7,7 @@ import {
   MAX_TOTAL_XP,
 } from "./math.js";
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 const MAX_WARNING_HISTORY_PER_MEMBER = 25;
 
@@ -50,6 +50,33 @@ function mapModLogConfig(row, guildId) {
     guildId,
     enabled: row?.enabled === 1,
     channelId: row?.channel_id ?? null,
+  });
+}
+
+function mapTicketConfig(row, guildId, roleIds = []) {
+  return Object.freeze({
+    guildId,
+    panelChannelId: row?.panel_channel_id ?? null,
+    panelMessageId: row?.panel_message_id ?? null,
+    categoryId: row?.category_id ?? null,
+    staffRoleIds: Object.freeze([...roleIds]),
+  });
+}
+
+function mapTicket(row) {
+  if (!row) return null;
+  return Object.freeze({
+    id: row.id,
+    guildId: row.guild_id,
+    channelId: row.channel_id ?? null,
+    controlMessageId: row.control_message_id ?? null,
+    creatorId: row.creator_id,
+    type: row.type,
+    status: row.status,
+    claimedBy: row.claimed_by ?? null,
+    createdAt: row.created_at,
+    closedAt: row.closed_at ?? null,
+    closedBy: row.closed_by ?? null,
   });
 }
 
@@ -188,6 +215,41 @@ export class LevelStore {
           channel_id TEXT,
           updated_at INTEGER NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS ticket_config (
+          guild_id TEXT PRIMARY KEY,
+          panel_channel_id TEXT,
+          panel_message_id TEXT,
+          category_id TEXT,
+          updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS ticket_staff_roles (
+          guild_id TEXT NOT NULL,
+          role_id TEXT NOT NULL,
+          PRIMARY KEY (guild_id, role_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS tickets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          guild_id TEXT NOT NULL,
+          channel_id TEXT UNIQUE,
+          control_message_id TEXT,
+          creator_id TEXT NOT NULL,
+          type TEXT NOT NULL CHECK (type IN ('bug', 'report', 'other')),
+          status TEXT NOT NULL CHECK (status IN ('pending', 'open', 'closed', 'deleted')),
+          claimed_by TEXT,
+          created_at INTEGER NOT NULL,
+          closed_at INTEGER,
+          closed_by TEXT
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS tickets_active_member_type_idx
+          ON tickets (guild_id, creator_id, type)
+          WHERE status IN ('pending', 'open');
+
+        CREATE INDEX IF NOT EXISTS tickets_channel_idx
+          ON tickets (guild_id, channel_id);
       `);
 
       if (version < SCHEMA_VERSION) {
@@ -434,6 +496,91 @@ export class LevelStore {
           enabled = 0,
           channel_id = NULL,
           updated_at = excluded.updated_at
+      `),
+      getTicketConfig: this.database.prepare(`
+        SELECT panel_channel_id, panel_message_id, category_id
+        FROM ticket_config
+        WHERE guild_id = ?
+      `),
+      listTicketStaffRoles: this.database.prepare(`
+        SELECT role_id
+        FROM ticket_staff_roles
+        WHERE guild_id = ?
+        ORDER BY role_id ASC
+      `),
+      setTicketConfig: this.database.prepare(`
+        INSERT INTO ticket_config (
+          guild_id, panel_channel_id, panel_message_id, category_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET
+          panel_channel_id = excluded.panel_channel_id,
+          panel_message_id = excluded.panel_message_id,
+          category_id = excluded.category_id,
+          updated_at = excluded.updated_at
+      `),
+      clearTicketStaffRoles: this.database.prepare(`
+        DELETE FROM ticket_staff_roles WHERE guild_id = ?
+      `),
+      addTicketStaffRole: this.database.prepare(`
+        INSERT INTO ticket_staff_roles (guild_id, role_id)
+        VALUES (?, ?)
+      `),
+      createTicket: this.database.prepare(`
+        INSERT INTO tickets (guild_id, creator_id, type, status, created_at)
+        VALUES (?, ?, ?, 'pending', ?)
+        RETURNING *
+      `),
+      activateTicket: this.database.prepare(`
+        UPDATE tickets
+        SET channel_id = ?, status = 'open'
+        WHERE id = ? AND guild_id = ? AND status = 'pending'
+        RETURNING *
+      `),
+      setTicketControlMessage: this.database.prepare(`
+        UPDATE tickets
+        SET control_message_id = ?
+        WHERE id = ? AND guild_id = ?
+        RETURNING *
+      `),
+      getTicketByChannel: this.database.prepare(`
+        SELECT * FROM tickets WHERE guild_id = ? AND channel_id = ?
+      `),
+      getActiveTicket: this.database.prepare(`
+        SELECT * FROM tickets
+        WHERE guild_id = ? AND creator_id = ? AND type = ?
+          AND status IN ('pending', 'open')
+        LIMIT 1
+      `),
+      claimTicket: this.database.prepare(`
+        UPDATE tickets
+        SET claimed_by = ?
+        WHERE id = ? AND guild_id = ? AND status IN ('open', 'closed')
+        RETURNING *
+      `),
+      closeTicket: this.database.prepare(`
+        UPDATE tickets
+        SET status = 'closed', closed_at = ?, closed_by = ?
+        WHERE id = ? AND guild_id = ? AND status = 'open'
+        RETURNING *
+      `),
+      reopenTicket: this.database.prepare(`
+        UPDATE tickets
+        SET status = 'open', closed_at = NULL, closed_by = NULL
+        WHERE id = ? AND guild_id = ? AND status = 'closed'
+          AND NOT EXISTS (
+            SELECT 1 FROM tickets active
+            WHERE active.guild_id = tickets.guild_id
+              AND active.creator_id = tickets.creator_id
+              AND active.type = tickets.type
+              AND active.status IN ('pending', 'open')
+          )
+        RETURNING *
+      `),
+      deleteTicket: this.database.prepare(`
+        UPDATE tickets
+        SET status = 'deleted'
+        WHERE id = ? AND guild_id = ? AND status != 'deleted'
+        RETURNING *
       `),
     });
   }
@@ -831,6 +978,132 @@ export class LevelStore {
     this.assertReady();
     this.statements.clearModLogChannel.run(guildId, Date.now());
     return this.getModLogConfig(guildId);
+  }
+
+  getTicketConfig(guildId) {
+    validateSnowflake(guildId, "Guild ID");
+    this.assertReady();
+    const roles = this.statements.listTicketStaffRoles
+      .all(guildId)
+      .map((row) => row.role_id);
+    return mapTicketConfig(this.statements.getTicketConfig.get(guildId), guildId, roles);
+  }
+
+  setTicketConfig({ guildId, panelChannelId, panelMessageId, categoryId, staffRoleIds }) {
+    validateSnowflake(guildId, "Guild ID");
+    validateSnowflake(panelChannelId, "Panel channel ID");
+    validateSnowflake(panelMessageId, "Panel message ID");
+    validateSnowflake(categoryId, "Ticket category ID");
+    if (!Array.isArray(staffRoleIds) || staffRoleIds.length < 1 || staffRoleIds.length > 5) {
+      throw new Error("Ticket configuration requires 1–5 staff roles.");
+    }
+    const uniqueRoleIds = [...new Set(staffRoleIds)];
+    for (const roleId of uniqueRoleIds) validateSnowflake(roleId, "Staff role ID");
+    this.assertReady();
+
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.statements.setTicketConfig.run(
+        guildId,
+        panelChannelId,
+        panelMessageId,
+        categoryId,
+        Date.now(),
+      );
+      this.statements.clearTicketStaffRoles.run(guildId);
+      for (const roleId of uniqueRoleIds) {
+        this.statements.addTicketStaffRole.run(guildId, roleId);
+      }
+      this.database.exec("COMMIT");
+      return this.getTicketConfig(guildId);
+    } catch (error) {
+      if (this.database.isTransaction) this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  createTicket({ guildId, creatorId, type, createdAt = Date.now() }) {
+    validateSnowflake(guildId, "Guild ID");
+    validateSnowflake(creatorId, "Ticket creator ID");
+    validateInteger(createdAt, 0, Number.MAX_SAFE_INTEGER, "Ticket timestamp");
+    if (!["bug", "report", "other"].includes(type)) {
+      throw new Error("Ticket type must be bug, report, or other.");
+    }
+    this.assertReady();
+    const active = this.statements.getActiveTicket.get(guildId, creatorId, type);
+    if (active) return Object.freeze({ created: false, ticket: mapTicket(active) });
+    try {
+      const row = this.statements.createTicket.get(guildId, creatorId, type, createdAt);
+      return Object.freeze({ created: true, ticket: mapTicket(row) });
+    } catch (error) {
+      if (error?.code === "ERR_SQLITE_CONSTRAINT_UNIQUE") {
+        return Object.freeze({
+          created: false,
+          ticket: mapTicket(
+            this.statements.getActiveTicket.get(guildId, creatorId, type),
+          ),
+        });
+      }
+      throw error;
+    }
+  }
+
+  activateTicket(guildId, ticketId, channelId) {
+    validateSnowflake(guildId, "Guild ID");
+    validateInteger(ticketId, 1, Number.MAX_SAFE_INTEGER, "Ticket ID");
+    validateSnowflake(channelId, "Ticket channel ID");
+    this.assertReady();
+    return mapTicket(this.statements.activateTicket.get(channelId, ticketId, guildId));
+  }
+
+  setTicketControlMessage(guildId, ticketId, messageId) {
+    validateSnowflake(guildId, "Guild ID");
+    validateInteger(ticketId, 1, Number.MAX_SAFE_INTEGER, "Ticket ID");
+    validateSnowflake(messageId, "Ticket control message ID");
+    this.assertReady();
+    return mapTicket(
+      this.statements.setTicketControlMessage.get(messageId, ticketId, guildId),
+    );
+  }
+
+  getTicketByChannel(guildId, channelId) {
+    validateSnowflake(guildId, "Guild ID");
+    validateSnowflake(channelId, "Ticket channel ID");
+    this.assertReady();
+    return mapTicket(this.statements.getTicketByChannel.get(guildId, channelId));
+  }
+
+  claimTicket(guildId, ticketId, moderatorId) {
+    validateSnowflake(guildId, "Guild ID");
+    validateInteger(ticketId, 1, Number.MAX_SAFE_INTEGER, "Ticket ID");
+    validateSnowflake(moderatorId, "Moderator ID");
+    this.assertReady();
+    return mapTicket(this.statements.claimTicket.get(moderatorId, ticketId, guildId));
+  }
+
+  closeTicket(guildId, ticketId, moderatorId, closedAt = Date.now()) {
+    validateSnowflake(guildId, "Guild ID");
+    validateInteger(ticketId, 1, Number.MAX_SAFE_INTEGER, "Ticket ID");
+    validateSnowflake(moderatorId, "Moderator ID");
+    validateInteger(closedAt, 0, Number.MAX_SAFE_INTEGER, "Closed timestamp");
+    this.assertReady();
+    return mapTicket(
+      this.statements.closeTicket.get(closedAt, moderatorId, ticketId, guildId),
+    );
+  }
+
+  reopenTicket(guildId, ticketId) {
+    validateSnowflake(guildId, "Guild ID");
+    validateInteger(ticketId, 1, Number.MAX_SAFE_INTEGER, "Ticket ID");
+    this.assertReady();
+    return mapTicket(this.statements.reopenTicket.get(ticketId, guildId));
+  }
+
+  deleteTicket(guildId, ticketId) {
+    validateSnowflake(guildId, "Guild ID");
+    validateInteger(ticketId, 1, Number.MAX_SAFE_INTEGER, "Ticket ID");
+    this.assertReady();
+    return mapTicket(this.statements.deleteTicket.get(ticketId, guildId));
   }
 
   close() {
