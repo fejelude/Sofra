@@ -47,10 +47,8 @@ export function buildBoosterThankYouEmbeds({ member, message, iconURL = null, ti
   const banner = new EmbedBuilder().setColor(SOFRA_PINK).setImage(BOOST_IMAGE_URL);
   const thanks = new EmbedBuilder()
     .setColor(SOFRA_PINK)
-    .setAuthor({
-      name: "♡ Thanks for supporting itsmefeje studios!",
-      ...(iconURL ? { iconURL } : {}),
-    })
+    .setAuthor({ name: "♡ Thanks for supporting itsmefeje studios!" })
+    .setThumbnail(iconURL)
     .setDescription(`## Thank you for boosting, ${member}! 🎀\n\n${message}`)
     .addFields({
       name: "୨୧ Your support matters",
