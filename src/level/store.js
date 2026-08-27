@@ -691,7 +691,9 @@ export class LevelStore {
     validateSnowflake(userId, "User ID");
     validateSnowflake(messageId, "Message ID");
     validateInteger(now, 0, Number.MAX_SAFE_INTEGER, "Award timestamp");
-    validateInteger(xp, 1, 100, "XP award");
+    // Base awards are capped at 100; the fixed 1.5x Server Booster bonus can
+    // legitimately raise one eligible award to 150 XP.
+    validateInteger(xp, 1, 150, "XP award");
     this.assertReady();
 
     const config = this.getConfig(guildId);

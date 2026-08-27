@@ -14,6 +14,7 @@ function fixture() {
     error: (...args) => entries.push(["error", ...args]),
   };
   let awards = 0;
+  let lastAwardedXp = null;
   const config = {
     enabled: true,
     notificationChannelId: null,
@@ -24,8 +25,9 @@ function fixture() {
   const store = {
     getHealth: () => ({ ok: true, message: "ready" }),
     getConfig: () => config,
-    awardMessageXp: () => {
+    awardMessageXp: ({ xp }) => {
       awards += 1;
+      lastAwardedXp = xp;
       return { awarded: true, previousXp: 99, newXp: 119 };
     },
     listRoleRewards: () => [],
@@ -68,7 +70,16 @@ function fixture() {
   });
 
   const service = new LevelService({ client, store, logger });
-  return { service, store, config, message, entries, getAwards: () => awards };
+  return {
+    service,
+    store,
+    config,
+    message,
+    member,
+    entries,
+    getAwards: () => awards,
+    getLastAwardedXp: () => lastAwardedXp,
+  };
 }
 
 test("eligible messages earn XP without reading message content", async () => {
@@ -82,6 +93,26 @@ test("eligible messages earn XP without reading message content", async () => {
 
   assert.equal(getAwards(), 1);
   assert.equal(notifications, 1);
+});
+
+test("active Server Boosters earn 50 percent more XP", async () => {
+  const { service, message, member, getLastAwardedXp } = fixture();
+  member.premiumSinceTimestamp = 100_000;
+  service.sendLevelUpNotification = async () => {};
+
+  await service.handleMessage(message);
+
+  assert.equal(getLastAwardedXp(), 30);
+});
+
+test("non-boosters keep the configured base XP", async () => {
+  const { service, message, member, getLastAwardedXp } = fixture();
+  member.premiumSinceTimestamp = null;
+  service.sendLevelUpNotification = async () => {};
+
+  await service.handleMessage(message);
+
+  assert.equal(getLastAwardedXp(), 20);
 });
 
 test("duplicate events and bot messages are ignored safely", async () => {

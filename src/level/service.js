@@ -17,7 +17,12 @@ import {
   buildRewardsEmbed,
   LEVEL_COLORS,
 } from "./embeds.js";
-import { levelFromXp, totalXpForLevel } from "./math.js";
+import {
+  levelFromXp,
+  SERVER_BOOSTER_XP_MULTIPLIER,
+  totalXpForLevel,
+  xpWithServerBoosterBonus,
+} from "./math.js";
 import { grantEligibleRoleRewards, inspectRewardRole } from "./roles.js";
 
 const LEADERBOARD_PAGE_SIZE = 10;
@@ -190,7 +195,7 @@ export class LevelService {
   async enable(interaction) {
     const config = this.store.setEnabled(interaction.guild.id, true);
     await interaction.editReply(
-      `🩷 XP earning is now **enabled**. Members receive **${config.xpMin}–${config.xpMax} XP** at most once every **${config.cooldownSeconds} seconds**.`,
+      `🩷 XP earning is now **enabled**. Members receive **${config.xpMin}–${config.xpMax} XP** at most once every **${config.cooldownSeconds} seconds**. Active Server Boosters receive **${SERVER_BOOSTER_XP_MULTIPLIER}× XP**.`,
     );
   }
 
@@ -396,6 +401,11 @@ export class LevelService {
           value: `${config.cooldownSeconds} seconds`,
           inline: true,
         },
+        {
+          name: "💎 Server Booster Bonus",
+          value: `${SERVER_BOOSTER_XP_MULTIPLIER}× XP (+50%)`,
+          inline: true,
+        },
         { name: "☁️ Notification Channel", value: channelValue, inline: false },
         {
           name: "👁️ View Channel",
@@ -462,7 +472,16 @@ export class LevelService {
         return;
       }
 
-      const xp = randomInt(config.xpMin, config.xpMax + 1);
+      let member = message.member;
+      if (!member) {
+        member = await message.guild.members.fetch(message.author.id);
+      }
+
+      const baseXp = randomInt(config.xpMin, config.xpMax + 1);
+      const xp = xpWithServerBoosterBonus(
+        baseXp,
+        Boolean(member.premiumSinceTimestamp),
+      );
       const award = this.store.awardMessageXp({
         guildId: message.guild.id,
         userId: message.author.id,
@@ -477,11 +496,6 @@ export class LevelService {
 
       const oldLevel = levelFromXp(award.previousXp);
       const newLevel = levelFromXp(award.newXp);
-      let member = message.member;
-      if (!member) {
-        member = await message.guild.members.fetch(message.author.id);
-      }
-
       const roleRewards = this.store.listRoleRewards(message.guild.id);
       const assignedRoles = await grantEligibleRoleRewards({
         member,

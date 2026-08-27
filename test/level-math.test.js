@@ -4,7 +4,9 @@ import {
   levelFromXp,
   levelProgress,
   progressBar,
+  SERVER_BOOSTER_XP_MULTIPLIER,
   totalXpForLevel,
+  xpWithServerBoosterBonus,
   xpNeededForNextLevel,
 } from "../src/level/math.js";
 
@@ -35,4 +37,18 @@ test("progress reports current, remaining, and visual completion", () => {
   assert.equal(progress.remaining, 105);
   assert.equal(progress.percentage, 32);
   assert.equal(progressBar(0.5), "▰▰▰▰▰▱▱▱▱▱");
+});
+
+test("active Server Boosters receive a 50 percent XP bonus", () => {
+  assert.equal(SERVER_BOOSTER_XP_MULTIPLIER, 1.5);
+  assert.equal(xpWithServerBoosterBonus(20, true), 30);
+  assert.equal(xpWithServerBoosterBonus(15, true), 23);
+  assert.equal(xpWithServerBoosterBonus(25, true), 38);
+  assert.equal(xpWithServerBoosterBonus(100, true), 150);
+});
+
+test("normal members keep the original XP award", () => {
+  assert.equal(xpWithServerBoosterBonus(20, false), 20);
+  assert.equal(xpWithServerBoosterBonus(15, false), 15);
+  assert.equal(xpWithServerBoosterBonus(Number.NaN, true), 0);
 });

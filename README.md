@@ -29,6 +29,8 @@ message archive. Configuration happens through Discord slash commands.
 - Duplicate-event protection and graceful handling of database, channel, role,
   and Discord API failures
 - Message content is never read or stored
+- Active Discord Server Boosters earn **1.5× XP (+50%)** on every eligible
+  message while keeping the same anti-spam cooldown
 
 ### Auto-role system
 
@@ -285,6 +287,11 @@ By default, each member can earn **15–25 XP once every 60 seconds**. The
 cooldown is per member and per server and survives restarts. XP requirements
 increase gradually at each level. Bots, webhook messages, system messages,
 DMs, and duplicate events do not earn XP.
+
+Active Server Boosters receive 1.5× the randomly rolled XP for each eligible
+message. XP remains a whole number, so half-point results round upward (for
+example, 15 base XP becomes 23 XP). The bonus is determined from Discord's live
+boosting state and does not rely on a manually assigned role.
 
 If no dedicated level channel is configured, a level-up appears in the channel
 where XP was earned. If a configured channel is later deleted or loses access,
