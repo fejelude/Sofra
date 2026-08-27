@@ -1,5 +1,6 @@
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { AutoRoleService } from "./autorole/service.js";
+import { BoosterService } from "./booster/service.js";
 import { CommunityService } from "./community/service.js";
 import { LevelService } from "./level/service.js";
 import { LevelStore } from "./level/store.js";
@@ -36,6 +37,7 @@ const autoRoleService = new AutoRoleService({
   store: levelStore,
   logger,
 });
+const boosterService = new BoosterService({ client, store: levelStore, logger });
 const modLogService = new ModLogService({
   client,
   store: levelStore,
@@ -116,6 +118,9 @@ client.on(Events.InteractionCreate, (interaction) => {
     if (await autoRoleService.handleInteraction(interaction)) {
       return;
     }
+    if (await boosterService.handleInteraction(interaction)) {
+      return;
+    }
     if (await modLogService.handleInteraction(interaction)) {
       return;
     }
@@ -134,6 +139,10 @@ client.on(Events.GuildMemberAdd, (member) => {
   void autoRoleService.handleMemberJoin(member);
 });
 
+client.on(Events.GuildMemberUpdate, (oldMember, newMember) => {
+  void boosterService.handleMemberUpdate(oldMember, newMember);
+});
+
 client.on(Events.MessageCreate, (message) => {
   void levelService.handleMessage(message);
 });
@@ -141,12 +150,14 @@ client.on(Events.MessageCreate, (message) => {
 client.on(Events.GuildRoleDelete, (role) => {
   levelService.handleRoleDelete(role);
   autoRoleService.handleRoleDelete(role);
+  boosterService.handleRoleDelete(role);
 });
 
 client.on(Events.ChannelDelete, (channel) => {
   void moderationService.handleChannelDelete(channel);
   void modLogService.handleChannelDelete(channel);
   void ticketService.handleChannelDelete(channel);
+  boosterService.handleChannelDelete(channel);
 });
 
 client.on(Events.GuildAuditLogEntryCreate, (entry, guild) => {
