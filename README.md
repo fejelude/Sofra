@@ -84,9 +84,10 @@ message archive. Configuration happens through Discord slash commands.
 ## Discord setup
 
 1. Open the [Discord Developer Portal](https://discord.com/developers/applications).
-2. Select Sofra, open **Bot**, and enable **Server Members Intent** under
-   **Privileged Gateway Intents**. This is required for welcome and auto-role
-   join events.
+2. Select Sofra, open **Bot**, and enable **Server Members Intent** and
+   **Message Content Intent** under **Privileged Gateway Intents**. Server
+   Members is required for joins, roles, and boost detection; Message Content
+   is required for passive text-trigger features.
 3. Invite Sofra with the `bot` and `applications.commands` scopes.
 4. Give Sofra these permissions in welcome and level-notification channels:
    - View Channel
@@ -111,9 +112,9 @@ message archive. Configuration happens through Discord slash commands.
     and **Embed Links**. Sofra also needs access and **Read Message History** in
     the channel containing the referenced Nitro GIF message.
 
-The level system uses the normal **Guild Messages** gateway intent, which is
-requested by the code automatically. Sofra does **not** need Message Content
-Intent or Presence Intent. The level system deliberately ignores message text.
+The level system deliberately ignores message text when awarding XP. Message
+Content Intent is used only by passive text-trigger features; matching happens
+in memory, and message text is not persisted. Presence Intent is not required.
 Moderation logs add Discord's non-privileged **Guild Moderation** intent for
 live audit-log events; it does not require another Developer Portal toggle.
 
@@ -319,6 +320,10 @@ offense count remains accurate. Sofra does not store ordinary message text,
 avatars, purged messages, moderation-log events, polls, memes, full message
 history, ticket conversation contents, or join history.
 
+Passive text-trigger checks inspect incoming message content only in memory.
+They do not add commands, store matching messages, or write their contents to
+logs or databases.
+
 Normal Wispbyte restarts reload both files automatically. If you fully erase or
 move the server, back up and restore the `data` directory to keep settings and
 levels.
@@ -367,8 +372,8 @@ For welcomes, run `/welcome channel`, `/welcome enable`, `/welcome status`, and
 
 ## Known limitations
 
-- XP is based on eligible messages, not message quality or length, because
-  message content is intentionally not inspected.
+- XP is based on eligible messages, not message quality or length. The level
+  system does not use message content even though passive triggers inspect it.
 - Users who leave remain on the leaderboard so their progress survives a
   rejoin. There is no reset command in this focused implementation.
 - Members already above a new reward threshold receive the role after their

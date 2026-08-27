@@ -9,6 +9,7 @@ import { ModLogService } from "./modlog/service.js";
 import { ModerationService } from "./moderation/service.js";
 import { registerCommands } from "./register-command.js";
 import { readRuntimeConfig } from "./runtime-config.js";
+import { SofhiaEasterEggService } from "./sofhia/service.js";
 import { TicketService } from "./ticket/service.js";
 import { WelcomeService } from "./welcome/service.js";
 import { JsonWelcomeConfigStore } from "./welcome/store.js";
@@ -19,6 +20,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildModeration,
   ],
 });
@@ -38,6 +40,7 @@ const autoRoleService = new AutoRoleService({
   logger,
 });
 const boosterService = new BoosterService({ client, store: levelStore, logger });
+const sofhiaEasterEggService = new SofhiaEasterEggService({ logger });
 const modLogService = new ModLogService({
   client,
   store: levelStore,
@@ -145,6 +148,7 @@ client.on(Events.GuildMemberUpdate, (oldMember, newMember) => {
 
 client.on(Events.MessageCreate, (message) => {
   void levelService.handleMessage(message);
+  void sofhiaEasterEggService.handleMessage(message);
 });
 
 client.on(Events.GuildRoleDelete, (role) => {
