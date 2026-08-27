@@ -7,7 +7,7 @@ import {
   MAX_TOTAL_XP,
 } from "./math.js";
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 const MAX_WARNING_HISTORY_PER_MEMBER = 25;
 
@@ -49,6 +49,15 @@ function mapModLogConfig(row, guildId) {
   return Object.freeze({
     guildId,
     enabled: row?.enabled === 1,
+    channelId: row?.channel_id ?? null,
+  });
+}
+
+function mapBoosterConfig(row, guildId) {
+  return Object.freeze({
+    guildId,
+    enabled: row?.enabled === 1,
+    roleId: row?.role_id ?? null,
     channelId: row?.channel_id ?? null,
   });
 }
@@ -212,6 +221,14 @@ export class LevelStore {
         CREATE TABLE IF NOT EXISTS moderation_log_config (
           guild_id TEXT PRIMARY KEY,
           enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+          channel_id TEXT,
+          updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS booster_config (
+          guild_id TEXT PRIMARY KEY,
+          enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+          role_id TEXT,
           channel_id TEXT,
           updated_at INTEGER NOT NULL
         );
@@ -496,6 +513,35 @@ export class LevelStore {
           enabled = 0,
           channel_id = NULL,
           updated_at = excluded.updated_at
+      `),
+      getBoosterConfig: this.database.prepare(`
+        SELECT enabled, role_id, channel_id
+        FROM booster_config
+        WHERE guild_id = ?
+      `),
+      setBoosterConfig: this.database.prepare(`
+        INSERT INTO booster_config (guild_id, enabled, role_id, channel_id, updated_at)
+        VALUES (?, 0, ?, ?, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET
+          enabled = 0,
+          role_id = excluded.role_id,
+          channel_id = excluded.channel_id,
+          updated_at = excluded.updated_at
+      `),
+      setBoosterEnabled: this.database.prepare(`
+        INSERT INTO booster_config (guild_id, enabled, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET
+          enabled = excluded.enabled,
+          updated_at = excluded.updated_at
+      `),
+      clearBoosterRole: this.database.prepare(`
+        UPDATE booster_config SET enabled = 0, role_id = NULL, updated_at = ?
+        WHERE guild_id = ?
+      `),
+      clearBoosterChannel: this.database.prepare(`
+        UPDATE booster_config SET enabled = 0, channel_id = NULL, updated_at = ?
+        WHERE guild_id = ?
       `),
       getTicketConfig: this.database.prepare(`
         SELECT panel_channel_id, panel_message_id, category_id
@@ -978,6 +1024,43 @@ export class LevelStore {
     this.assertReady();
     this.statements.clearModLogChannel.run(guildId, Date.now());
     return this.getModLogConfig(guildId);
+  }
+
+  getBoosterConfig(guildId) {
+    validateSnowflake(guildId, "Guild ID");
+    this.assertReady();
+    return mapBoosterConfig(this.statements.getBoosterConfig.get(guildId), guildId);
+  }
+
+  setBoosterConfig(guildId, { roleId, channelId }) {
+    validateSnowflake(guildId, "Guild ID");
+    validateSnowflake(roleId, "Booster role ID");
+    validateSnowflake(channelId, "Booster channel ID");
+    this.assertReady();
+    this.statements.setBoosterConfig.run(guildId, roleId, channelId, Date.now());
+    return this.getBoosterConfig(guildId);
+  }
+
+  setBoosterEnabled(guildId, enabled) {
+    validateSnowflake(guildId, "Guild ID");
+    if (typeof enabled !== "boolean") throw new Error("Enabled state must be true or false.");
+    this.assertReady();
+    this.statements.setBoosterEnabled.run(guildId, enabled ? 1 : 0, Date.now());
+    return this.getBoosterConfig(guildId);
+  }
+
+  clearBoosterRole(guildId) {
+    validateSnowflake(guildId, "Guild ID");
+    this.assertReady();
+    this.statements.clearBoosterRole.run(Date.now(), guildId);
+    return this.getBoosterConfig(guildId);
+  }
+
+  clearBoosterChannel(guildId) {
+    validateSnowflake(guildId, "Guild ID");
+    this.assertReady();
+    this.statements.clearBoosterChannel.run(Date.now(), guildId);
+    return this.getBoosterConfig(guildId);
   }
 
   getTicketConfig(guildId) {

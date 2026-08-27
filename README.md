@@ -38,6 +38,15 @@ message archive. Configuration happens through Discord slash commands.
 - Persistent per-server role and enabled state
 - Duplicate join protection and failure isolation from welcomes and levels
 
+### Server Booster celebrations
+
+- Detects the exact transition when a member begins boosting the server
+- Assigns one configurable custom **Server Booster** role automatically
+- Posts a pink Sofra thank-you embed with the supplied banner and Nitro GIF
+- Randomly selects from exactly 67 cute, sincere thank-you messages
+- Removes the custom role when the member stops boosting
+- Persistent per-server role, channel, and enabled state with safe duplicate-event handling
+
 ### Moderation and community tools
 
 - Purge, ban, kick, timeout mute/unmute, warning, unban, lockdown, unlock, and
@@ -95,6 +104,10 @@ message archive. Configuration happens through Discord slash commands.
    **Send Messages**, and **Embed Links**.
 9. Tickets require **Manage Channels**. Sofra also needs **View Channel**, **Send
    Messages**, and **Embed Links** in the selected panel and Staff Logs channels.
+10. Booster celebrations require **Manage Roles** with Sofra above the custom
+    booster role. The thank-you channel needs **View Channel**, **Send Messages**,
+    and **Embed Links**. Sofra also needs access and **Read Message History** in
+    the channel containing the referenced Nitro GIF message.
 
 The level system uses the normal **Guild Messages** gateway intent, which is
 requested by the code automatically. Sofra does **not** need Message Content
@@ -203,6 +216,21 @@ hierarchies.
 Discord bulk deletion cannot remove messages older than 14 days. `/purge all`
 therefore deletes all recent messages it can find, up to 1,000 per command.
 
+### Booster administration
+
+- `/booster setup role:@Server Booster channel:#boosts` — save both destinations,
+  validate permissions and hierarchy, and enable the feature
+- `/booster enable` — resume role assignment and thank-you embeds
+- `/booster disable` — pause the feature while keeping its settings
+- `/booster test` — send a randomized preview without changing anyone's role
+- `/booster status` — diagnose storage, role hierarchy, and channel permissions
+
+All `/booster` commands require **Manage Server** or Administrator. The role must
+be a custom assignable role; Discord's built-in managed booster role cannot be
+assigned manually by bots. Sofra retrieves the GIF from the supplied Discord
+message reference at send time so expiring attachment URLs remain fresh. If the
+GIF cannot be accessed, Sofra safely falls back to her animated avatar.
+
 ### Moderation-log administration
 
 - `/modlog setup` — create/configure `Moderation → #staff-logs`, keep it hidden
@@ -271,13 +299,13 @@ from assigning managed roles or roles above Sofra's highest role.
 Welcome configuration is stored atomically in `data/welcome-config.json`.
 Level configuration, XP, cooldown state, reward mappings, auto-role settings,
 warnings, active lockdown restoration data, moderation-log configuration,
-ticket settings, staff-role access, increasing ticket IDs, status, claim, and
+ticket settings, staff-role access, booster settings, increasing ticket IDs, status, claim, and
 channel/message references are stored in
 `data/levels.sqlite`. Both paths are ignored by Git.
 
 The level database stores only the data needed for the feature: server and user
 IDs, total XP, eligible-message count, last award timestamp/message ID, level
-settings, channel ID, reward role IDs, the configured auto-role ID, warning
+settings, channel ID, reward role IDs, the configured auto-role and booster IDs, warning
 reasons/moderator IDs/timestamps, and temporary lockdown state. Detailed
 warning history is limited to the latest 25 entries per member while the total
 offense count remains accurate. Sofra does not store ordinary message text,
