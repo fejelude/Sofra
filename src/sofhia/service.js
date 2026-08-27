@@ -1,10 +1,11 @@
-import { chooseSofhiaResponse } from "./messages.js";
+import { chooseSofhiaResponseWithMood } from "./messages.js";
+import { chooseSofhiaReactionGif } from "./gifs.js";
 
 export const SOFHIA_EASTER_EGG_MIN_COOLDOWN_SECONDS = 4;
 export const SOFHIA_EASTER_EGG_MAX_COOLDOWN_SECONDS = 15;
 export const SOFHIA_EASTER_EGG_DELETE_AFTER_MS = 10_000;
 export const SOFHIA_TRIGGER_PATTERN =
-  /(?<![\p{L}\p{N}_])(?:sofhia|sofi|fhia|pia)(?![\p{L}\p{N}_])/iu;
+  /(?<![\p{L}\p{N}_])(?:sofhia|sofie|sofi|fhia|fia|pia)(?![\p{L}\p{N}_])/iu;
 
 const MAX_COOLDOWN_ENTRIES = 5_000;
 
@@ -61,8 +62,13 @@ export class SofhiaEasterEggService {
 
     let reply;
     try {
+      const response = chooseSofhiaResponseWithMood(this.random);
+      const reactionGif = chooseSofhiaReactionGif(this.random, response.mood);
       reply = await message.reply({
-        content: chooseSofhiaResponse(this.random),
+        content: response.content,
+        ...(reactionGif
+          ? { embeds: [{ image: { url: reactionGif.url } }] }
+          : {}),
         allowedMentions: { parse: [], repliedUser: false },
       });
     } catch (error) {
