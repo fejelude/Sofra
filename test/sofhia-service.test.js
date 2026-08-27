@@ -12,7 +12,7 @@ import {
 const GUILD_ID = "1540617362477162506";
 const MEMBER_ID = "1540628204333703198";
 
-function fixture() {
+function fixture({ random = () => 0 } = {}) {
   const logs = [];
   const logger = {
     info: (...args) => logs.push(["info", ...args]),
@@ -22,6 +22,7 @@ function fixture() {
   let now = 100_000;
   let replyCount = 0;
   let deleteCount = 0;
+  let lastPayload = null;
   const scheduled = [];
   const reply = {
     id: "1540628204333703200",
@@ -40,13 +41,14 @@ function fixture() {
     inGuild: () => true,
     reply: async (payload) => {
       replyCount += 1;
+      lastPayload = payload;
       assert.equal(payload.allowedMentions.repliedUser, false);
       return reply;
     },
   };
   const service = new SofhiaEasterEggService({
     logger,
-    random: () => 0,
+    random,
     now: () => now,
     schedule: (callback, delay) => {
       scheduled.push({ callback, delay });
@@ -64,16 +66,44 @@ function fixture() {
     },
     getReplyCount: () => replyCount,
     getDeleteCount: () => deleteCount,
+    getLastPayload: () => lastPayload,
   };
 }
 
 test("trigger matching is case-insensitive and respects word boundaries", () => {
-  for (const content of ["sofi", "SOFHIA!", "hello Fhia", "Pia?", "(SoFi)"]) {
+  for (const content of [
+    "sofi",
+    "SOFIE!",
+    "SOFHIA!",
+    "hello Fia",
+    "hello Fhia",
+    "Pia?",
+    "(SoFi)",
+  ]) {
     assert.equal(containsSofhiaTrigger(content), true, content);
   }
-  for (const content of ["piano", "utopia", "sophisticated", "sofield", "fhialike"]) {
+  for (const content of [
+    "piano",
+    "utopia",
+    "fiat",
+    "sophisticated",
+    "sofield",
+    "sofiever",
+    "fhialike",
+  ]) {
     assert.equal(containsSofhiaTrigger(content), false, content);
   }
+});
+
+test("reaction GIFs are occasional and text-only replies stay possible", async () => {
+  const noGif = fixture({ random: () => 0.5 });
+  await noGif.service.handleMessage(noGif.message);
+  assert.equal(noGif.getLastPayload().embeds, undefined);
+
+  const randomValues = [0, 0, 0];
+  const withGif = fixture({ random: () => randomValues.shift() ?? 0 });
+  await withGif.service.handleMessage(withGif.message);
+  assert.match(withGif.getLastPayload().embeds[0].image.url, /^https:\/\//);
 });
 
 test("one matching message creates one temporary direct reply", async () => {
