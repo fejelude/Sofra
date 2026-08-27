@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   chooseSofhiaResponse,
+  chooseSofhiaResponseWithMood,
   SOFHIA_EASTER_EGG_RESPONSES,
 } from "../src/sofhia/messages.js";
 
@@ -9,6 +10,17 @@ test("the Sofhia easter egg provides exactly 300 unique responses", () => {
   assert.equal(SOFHIA_EASTER_EGG_RESPONSES.length, 300);
   assert.equal(new Set(SOFHIA_EASTER_EGG_RESPONSES).size, 300);
   assert.ok(SOFHIA_EASTER_EGG_RESPONSES.every((response) => response.length <= 250));
+});
+
+test("response selection preserves the mood used for matching GIFs", () => {
+  assert.deepEqual(chooseSofhiaResponseWithMood(() => 0), {
+    content: SOFHIA_EASTER_EGG_RESPONSES[0],
+    mood: "shocked",
+  });
+  assert.deepEqual(chooseSofhiaResponseWithMood(() => 0.999999), {
+    content: SOFHIA_EASTER_EGG_RESPONSES[299],
+    mood: "natural",
+  });
 });
 
 test("response selection safely reaches the first and last entries", () => {
