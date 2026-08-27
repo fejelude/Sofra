@@ -1,4 +1,5 @@
 import { autoRoleCommand } from "./autorole/command.js";
+import { boosterCommand } from "./booster/command.js";
 import { communityCommands } from "./community/commands.js";
 import { levelCommand } from "./level/command.js";
 import { modLogCommand } from "./modlog/command.js";
@@ -10,6 +11,7 @@ const commandsToRegister = Object.freeze([
   welcomeCommand,
   levelCommand,
   autoRoleCommand,
+  boosterCommand,
   modLogCommand,
   ticketChannelCommand,
   ...moderationCommands,
