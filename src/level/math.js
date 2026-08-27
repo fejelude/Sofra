@@ -2,6 +2,16 @@ export const DEFAULT_XP_MIN = 15;
 export const DEFAULT_XP_MAX = 25;
 export const DEFAULT_COOLDOWN_SECONDS = 60;
 export const MAX_LEVEL = 10_000;
+export const SERVER_BOOSTER_XP_MULTIPLIER = 1.5;
+
+export function xpWithServerBoosterBonus(baseXp, isServerBooster) {
+  const safeBaseXp = Math.max(0, Math.trunc(Number.isFinite(baseXp) ? baseXp : 0));
+  if (!isServerBooster) {
+    return safeBaseXp;
+  }
+
+  return Math.round(safeBaseXp * SERVER_BOOSTER_XP_MULTIPLIER);
+}
 
 export function xpNeededForNextLevel(level) {
   const safeLevel = Math.max(0, Math.min(MAX_LEVEL, Math.trunc(level)));
