@@ -2,8 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   containsSofhiaTrigger,
-  SOFHIA_EASTER_EGG_COOLDOWN_MS,
+  chooseSofhiaCooldownMs,
   SOFHIA_EASTER_EGG_DELETE_AFTER_MS,
+  SOFHIA_EASTER_EGG_MAX_COOLDOWN_SECONDS,
+  SOFHIA_EASTER_EGG_MIN_COOLDOWN_SECONDS,
   SofhiaEasterEggService,
 } from "../src/sofhia/service.js";
 
@@ -90,13 +92,29 @@ test("one matching message creates one temporary direct reply", async () => {
 test("the cooldown is per user and server", async () => {
   const { service, message, setNow, getReplyCount } = fixture();
   await service.handleMessage(message);
-  setNow(100_000 + SOFHIA_EASTER_EGG_COOLDOWN_MS - 1);
+  setNow(100_000 + SOFHIA_EASTER_EGG_MIN_COOLDOWN_SECONDS * 1_000 - 1);
   await service.handleMessage({ ...message, id: "1540628204333703202" });
   assert.equal(getReplyCount(), 1);
 
-  setNow(100_000 + SOFHIA_EASTER_EGG_COOLDOWN_MS);
+  setNow(100_000 + SOFHIA_EASTER_EGG_MIN_COOLDOWN_SECONDS * 1_000);
   await service.handleMessage({ ...message, id: "1540628204333703203" });
   assert.equal(getReplyCount(), 2);
+});
+
+test("cooldowns are randomized from 4 through 15 seconds", () => {
+  assert.equal(
+    chooseSofhiaCooldownMs(() => 0),
+    SOFHIA_EASTER_EGG_MIN_COOLDOWN_SECONDS * 1_000,
+  );
+  assert.equal(chooseSofhiaCooldownMs(() => 0.5), 10_000);
+  assert.equal(
+    chooseSofhiaCooldownMs(() => 0.999999),
+    SOFHIA_EASTER_EGG_MAX_COOLDOWN_SECONDS * 1_000,
+  );
+  assert.equal(
+    chooseSofhiaCooldownMs(() => 1),
+    SOFHIA_EASTER_EGG_MAX_COOLDOWN_SECONDS * 1_000,
+  );
 });
 
 test("bots, webhooks, system messages, and non-matches are ignored", async () => {
