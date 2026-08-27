@@ -115,6 +115,25 @@ test("awards are idempotent and enforce the persistent cooldown", async (t) => {
   store.close();
 });
 
+test("the store accepts the maximum boosted XP award", async (t) => {
+  const fixture = await storeFixture(t);
+  const store = new LevelStore(fixture);
+  await store.init();
+  store.setEnabled(GUILD_ID, true);
+
+  const award = store.awardMessageXp({
+    guildId: GUILD_ID,
+    userId: USER_ONE,
+    messageId: "1540628204333703213",
+    now: 100_000,
+    xp: 150,
+  });
+
+  assert.equal(award.awarded, true);
+  assert.equal(store.getMemberStats(GUILD_ID, USER_ONE).xp, 150);
+  store.close();
+});
+
 test("leaderboard ranking is deterministic for XP ties", async (t) => {
   const fixture = await storeFixture(t);
   const store = new LevelStore(fixture);
