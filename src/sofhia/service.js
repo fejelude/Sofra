@@ -1,6 +1,7 @@
 import { chooseSofhiaResponse } from "./messages.js";
 
-export const SOFHIA_EASTER_EGG_COOLDOWN_MS = 30_000;
+export const SOFHIA_EASTER_EGG_MIN_COOLDOWN_SECONDS = 4;
+export const SOFHIA_EASTER_EGG_MAX_COOLDOWN_SECONDS = 15;
 export const SOFHIA_EASTER_EGG_DELETE_AFTER_MS = 10_000;
 export const SOFHIA_TRIGGER_PATTERN =
   /(?<![\p{L}\p{N}_])(?:sofhia|sofi|fhia|pia)(?![\p{L}\p{N}_])/iu;
@@ -9,6 +10,16 @@ const MAX_COOLDOWN_ENTRIES = 5_000;
 
 export function containsSofhiaTrigger(content) {
   return typeof content === "string" && SOFHIA_TRIGGER_PATTERN.test(content);
+}
+
+export function chooseSofhiaCooldownMs(random = Math.random) {
+  const possibleSeconds =
+    SOFHIA_EASTER_EGG_MAX_COOLDOWN_SECONDS -
+    SOFHIA_EASTER_EGG_MIN_COOLDOWN_SECONDS +
+    1;
+  const offset = Math.floor(random() * possibleSeconds);
+  const safeOffset = Math.max(0, Math.min(offset, possibleSeconds - 1));
+  return (SOFHIA_EASTER_EGG_MIN_COOLDOWN_SECONDS + safeOffset) * 1_000;
 }
 
 export class SofhiaEasterEggService {
@@ -38,17 +49,15 @@ export class SofhiaEasterEggService {
 
     const now = this.now();
     const cooldownKey = `${message.guildId}:${message.author.id}`;
-    const lastResponseAt = this.cooldowns.get(cooldownKey);
-    if (
-      lastResponseAt !== undefined &&
-      now - lastResponseAt < SOFHIA_EASTER_EGG_COOLDOWN_MS
-    ) {
+    const cooldownUntil = this.cooldowns.get(cooldownKey);
+    if (cooldownUntil !== undefined && now < cooldownUntil) {
       return true;
     }
 
     this.pruneCooldowns(now);
     this.cooldowns.delete(cooldownKey);
-    this.cooldowns.set(cooldownKey, now);
+    const nextCooldownUntil = now + chooseSofhiaCooldownMs(this.random);
+    this.cooldowns.set(cooldownKey, nextCooldownUntil);
 
     let reply;
     try {
@@ -57,7 +66,7 @@ export class SofhiaEasterEggService {
         allowedMentions: { parse: [], repliedUser: false },
       });
     } catch (error) {
-      if (this.cooldowns.get(cooldownKey) === now) {
+      if (this.cooldowns.get(cooldownKey) === nextCooldownUntil) {
         this.cooldowns.delete(cooldownKey);
       }
       this.logger.error(
@@ -107,8 +116,8 @@ export class SofhiaEasterEggService {
       return;
     }
 
-    for (const [key, timestamp] of this.cooldowns) {
-      if (now - timestamp >= SOFHIA_EASTER_EGG_COOLDOWN_MS) {
+    for (const [key, expiresAt] of this.cooldowns) {
+      if (now >= expiresAt) {
         this.cooldowns.delete(key);
       }
     }
