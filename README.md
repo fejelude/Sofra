@@ -60,6 +60,23 @@ message archive. Configuration happens through Discord slash commands.
 - Discord-native single-choice polls that survive bot restarts
 - Retried, validated SFW memes from a small subreddit allowlist
 
+### Context-aware automod
+
+- Disabled-by-default, persistent per-server filtering with three profanity/hate
+  severity tiers and conservative multilingual defaults
+- Unicode, zero-width, homoglyph, leetspeak, symbol/spacing, capitalization, and
+  repeated-character normalization while preserving original text for staff logs
+- Separate normal-link and Discord-invite policies, so media URLs and attachments
+  do not accidentally become profanity violations
+- Owner/administrator/Manage Server access plus configurable manager, bypass,
+  normal-link, and invite roles; non-owners cannot grant roles at or above their own
+- Server defaults with exempt or relaxed channel/category overrides, custom blocked
+  words, and exact false-positive whitelists
+- Cute randomized warnings for profanity, direct wording for hate, warning cooldowns,
+  bounded five-minute escalation tracking, optional timeouts, and optional Tier 1
+  strikes in the existing warning history
+- Detailed incidents sent through the existing private Staff Logs channel
+
 ### Private moderation logs
 
 - One-command creation of a private `Moderation` category and `#staff-logs`
@@ -218,6 +235,26 @@ hierarchies.
 
 Discord bulk deletion cannot remove messages older than 14 days. `/purge all`
 therefore deletes all recent messages it can find, up to 1,000 per command.
+
+### Automatic moderation administration
+
+- `/automod enable|disable|status` — control or privately diagnose the master filter
+- `/automod test text:...` — privately scan sample text without enforcement or logging
+- `/automod settings` — configure Tier 3 behavior, links, invites, strikes, public
+  warning cooldown, repeat threshold, and timeout duration
+- `/automod role-add|role-remove role:... kind:...` — manage bypass, manager,
+  normal-link, and Discord-invite role permissions
+- `/automod channel channel:... mode:exempt|relaxed|default` — apply a channel or
+  category override without changing the server defaults
+- `/automod word-add`, `/automod word-remove`, and `/automod whitelist` — maintain
+  private server-specific rules and false-positive exceptions
+
+The server owner always has configuration access and bypasses filtering. Administrator
+and Manage Server users can configure the feature, as can explicitly configured manager
+roles. A configured bypass role skips message rules; link and invite roles only bypass
+their respective independent rule. Attachments, stickers, and uncaptioned media are not
+blocked. Tier 1 remains active in relaxed channels, while exempt channels skip automod.
+Configure `/modlog setup` to receive full incident records.
 
 ### Booster administration
 
