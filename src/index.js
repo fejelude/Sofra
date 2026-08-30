@@ -1,5 +1,6 @@
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { AutoRoleService } from "./autorole/service.js";
+import { AutomodService } from "./automod/service.js";
 import { BoosterService } from "./booster/service.js";
 import { CommunityService } from "./community/service.js";
 import { LevelService } from "./level/service.js";
@@ -52,6 +53,7 @@ const moderationService = new ModerationService({
   logger,
   modLogService,
 });
+const automodService = new AutomodService({ client, store: levelStore, logger, modLogService });
 const communityService = new CommunityService({ client, logger });
 const ticketService = new TicketService({
   client,
@@ -133,6 +135,9 @@ client.on(Events.InteractionCreate, (interaction) => {
     if (await moderationService.handleInteraction(interaction)) {
       return;
     }
+    if (await automodService.handleInteraction(interaction)) {
+      return;
+    }
     await communityService.handleInteraction(interaction);
   })();
 });
@@ -147,6 +152,7 @@ client.on(Events.GuildMemberUpdate, (oldMember, newMember) => {
 });
 
 client.on(Events.MessageCreate, (message) => {
+  void automodService.handleMessage(message);
   void levelService.handleMessage(message);
   void sofhiaEasterEggService.handleMessage(message);
 });

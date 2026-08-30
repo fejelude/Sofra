@@ -7,7 +7,7 @@ import {
   MAX_TOTAL_XP,
 } from "./math.js";
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 const MAX_WARNING_HISTORY_PER_MEMBER = 25;
 
@@ -267,6 +267,34 @@ export class LevelStore {
 
         CREATE INDEX IF NOT EXISTS tickets_channel_idx
           ON tickets (guild_id, channel_id);
+
+        CREATE TABLE IF NOT EXISTS automod_config (
+          guild_id TEXT PRIMARY KEY,
+          enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+          mild_action TEXT NOT NULL DEFAULT 'allow' CHECK (mild_action IN ('allow','warn','delete')),
+          links_enabled INTEGER NOT NULL DEFAULT 0 CHECK (links_enabled IN (0, 1)),
+          invites_enabled INTEGER NOT NULL DEFAULT 1 CHECK (invites_enabled IN (0, 1)),
+          warning_cooldown_seconds INTEGER NOT NULL DEFAULT 30,
+          escalation_threshold INTEGER NOT NULL DEFAULT 4,
+          timeout_minutes INTEGER NOT NULL DEFAULT 10,
+          strikes_enabled INTEGER NOT NULL DEFAULT 1 CHECK (strikes_enabled IN (0, 1)),
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS automod_roles (
+          guild_id TEXT NOT NULL, role_id TEXT NOT NULL,
+          kind TEXT NOT NULL CHECK (kind IN ('bypass','manager','link','invite')),
+          PRIMARY KEY (guild_id, role_id, kind)
+        );
+        CREATE TABLE IF NOT EXISTS automod_channels (
+          guild_id TEXT NOT NULL, channel_id TEXT NOT NULL,
+          mode TEXT NOT NULL CHECK (mode IN ('exempt','relaxed')),
+          PRIMARY KEY (guild_id, channel_id)
+        );
+        CREATE TABLE IF NOT EXISTS automod_words (
+          guild_id TEXT NOT NULL, word TEXT NOT NULL,
+          tier INTEGER NOT NULL CHECK (tier BETWEEN 0 AND 3),
+          PRIMARY KEY (guild_id, word)
+        );
       `);
 
       if (version < SCHEMA_VERSION) {
@@ -835,6 +863,66 @@ export class LevelStore {
         }),
       ),
     );
+  }
+
+  getAutomodConfig(guildId) {
+    validateSnowflake(guildId, "Guild ID");
+    this.assertReady();
+    const row = this.database.prepare("SELECT * FROM automod_config WHERE guild_id = ?").get(guildId);
+    const roles = this.database.prepare("SELECT role_id, kind FROM automod_roles WHERE guild_id = ?").all(guildId);
+    const channels = this.database.prepare("SELECT channel_id, mode FROM automod_channels WHERE guild_id = ?").all(guildId);
+    const words = this.database.prepare("SELECT word, tier FROM automod_words WHERE guild_id = ?").all(guildId);
+    return Object.freeze({
+      guildId, enabled: row?.enabled === 1, mildAction: row?.mild_action ?? "allow",
+      linksEnabled: row?.links_enabled === 1, invitesEnabled: row ? row.invites_enabled === 1 : true,
+      warningCooldownSeconds: row?.warning_cooldown_seconds ?? 30,
+      escalationThreshold: row?.escalation_threshold ?? 4, timeoutMinutes: row?.timeout_minutes ?? 10,
+      strikesEnabled: row ? row.strikes_enabled === 1 : true,
+      roles: Object.freeze(roles.map((item) => Object.freeze({ roleId: item.role_id, kind: item.kind }))),
+      channels: Object.freeze(channels.map((item) => Object.freeze({ channelId: item.channel_id, mode: item.mode }))),
+      words: Object.freeze(words.map((item) => Object.freeze({ word: item.word, tier: item.tier }))),
+    });
+  }
+
+  setAutomodConfig(guildId, changes) {
+    validateSnowflake(guildId, "Guild ID"); this.assertReady();
+    const current = this.getAutomodConfig(guildId);
+    const next = { ...current, ...changes };
+    if (!["allow", "warn", "delete"].includes(next.mildAction)) throw new Error("Invalid mild action.");
+    validateInteger(next.warningCooldownSeconds, 5, 600, "Warning cooldown");
+    validateInteger(next.escalationThreshold, 2, 20, "Escalation threshold");
+    validateInteger(next.timeoutMinutes, 0, 1440, "Timeout minutes");
+    this.database.prepare(`INSERT INTO automod_config VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(guild_id) DO UPDATE SET enabled=excluded.enabled, mild_action=excluded.mild_action,
+      links_enabled=excluded.links_enabled, invites_enabled=excluded.invites_enabled,
+      warning_cooldown_seconds=excluded.warning_cooldown_seconds, escalation_threshold=excluded.escalation_threshold,
+      timeout_minutes=excluded.timeout_minutes, strikes_enabled=excluded.strikes_enabled, updated_at=excluded.updated_at`).run(
+      guildId, next.enabled ? 1 : 0, next.mildAction, next.linksEnabled ? 1 : 0, next.invitesEnabled ? 1 : 0,
+      next.warningCooldownSeconds, next.escalationThreshold, next.timeoutMinutes, next.strikesEnabled ? 1 : 0, Date.now());
+    return this.getAutomodConfig(guildId);
+  }
+
+  setAutomodRole(guildId, roleId, kind, present = true) {
+    validateSnowflake(guildId, "Guild ID"); validateSnowflake(roleId, "Role ID"); this.assertReady();
+    if (!["bypass", "manager", "link", "invite"].includes(kind)) throw new Error("Invalid role kind.");
+    const sql = present ? "INSERT OR IGNORE INTO automod_roles VALUES (?, ?, ?)" : "DELETE FROM automod_roles WHERE guild_id=? AND role_id=? AND kind=?";
+    this.database.prepare(sql).run(guildId, roleId, kind); return this.getAutomodConfig(guildId);
+  }
+
+  setAutomodChannel(guildId, channelId, mode = null) {
+    validateSnowflake(guildId, "Guild ID"); validateSnowflake(channelId, "Channel ID"); this.assertReady();
+    if (mode === null) this.database.prepare("DELETE FROM automod_channels WHERE guild_id=? AND channel_id=?").run(guildId, channelId);
+    else { if (!["exempt", "relaxed"].includes(mode)) throw new Error("Invalid channel mode."); this.database.prepare("INSERT OR REPLACE INTO automod_channels VALUES (?, ?, ?)").run(guildId, channelId, mode); }
+    return this.getAutomodConfig(guildId);
+  }
+
+  setAutomodWord(guildId, word, tier = null) {
+    validateSnowflake(guildId, "Guild ID"); this.assertReady();
+    const value = String(word).trim().toLocaleLowerCase("und");
+    if (value.length < 2 || value.length > 50) throw new Error("Words must contain 2–50 characters.");
+    if (tier === null) this.database.prepare("DELETE FROM automod_words WHERE guild_id=? AND word=?").run(guildId, value);
+    else { validateInteger(tier, 0, 3, "Word tier"); this.database.prepare("INSERT OR REPLACE INTO automod_words VALUES (?, ?, ?)").run(guildId, value, tier); }
+    return this.getAutomodConfig(guildId);
   }
 
   getAutoRoleConfig(guildId) {

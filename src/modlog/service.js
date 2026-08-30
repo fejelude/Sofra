@@ -26,6 +26,7 @@ const ACTION_STYLES = Object.freeze({
   lockdown: { title: "Channel Locked", emoji: "🔒", color: 0xef9a9a },
   unlock: { title: "Channel Unlocked", emoji: "🔓", color: 0xa5d6a7 },
   slowmode: { title: "Slowmode Updated", emoji: "⏳", color: 0xce93d8 },
+  automod: { title: "Automod Incident", emoji: "🛡️", color: 0xef9a9a },
   permissions: {
     title: "Channel Permissions Updated",
     emoji: "🛡️",
