@@ -9,6 +9,20 @@ const GUILD_ID = "123456789012345678";
 const CHANNEL_ID = "223456789012345678";
 const OTHER_CHANNEL_ID = "323456789012345678";
 
+function welcomeConfig(overrides = {}) {
+  return {
+    enabled: false,
+    channelId: null,
+    messageTemplate: null,
+    embedTitle: null,
+    embedDescription: null,
+    color: null,
+    imageUrl: null,
+    thumbnailMode: "member",
+    ...overrides,
+  };
+}
+
 function loggerFixture() {
   const entries = [];
   return {
@@ -39,19 +53,46 @@ test("configuration survives a store restart", async (t) => {
   const second = new JsonWelcomeConfigStore(fixture);
   await second.init();
 
-  assert.deepEqual(second.getGuildConfig(GUILD_ID), {
+  assert.deepEqual(second.getGuildConfig(GUILD_ID), welcomeConfig({
     enabled: true,
     channelId: CHANNEL_ID,
-  });
+  }));
   assert.equal(second.getHealth().ok, true);
 
   const document = JSON.parse(await readFile(fixture.filePath, "utf8"));
   assert.deepEqual(document, {
     version: 1,
     guilds: {
-      [GUILD_ID]: { enabled: true, channelId: CHANNEL_ID },
+      [GUILD_ID]: welcomeConfig({ enabled: true, channelId: CHANNEL_ID }),
     },
   });
+});
+
+test("dashboard welcome customization survives a store restart", async (t) => {
+  const fixture = await temporaryStore(t);
+  const first = new JsonWelcomeConfigStore(fixture);
+  await first.init();
+  await first.setChannel(GUILD_ID, CHANNEL_ID);
+  await first.setCustomization(GUILD_ID, {
+    messageTemplate: "Hi {user.mention}! Welcome to {server.name} ♡",
+    embedTitle: "Welcome, {user.name}! 🎀",
+    embedDescription: "Member #{server.member_count}",
+    color: "#f4a7c2",
+    imageUrl: "https://example.com/welcome.gif",
+    thumbnailMode: "none",
+  });
+
+  const second = new JsonWelcomeConfigStore(fixture);
+  await second.init();
+  assert.deepEqual(second.getGuildConfig(GUILD_ID), welcomeConfig({
+    channelId: CHANNEL_ID,
+    messageTemplate: "Hi {user.mention}! Welcome to {server.name} ♡",
+    embedTitle: "Welcome, {user.name}! 🎀",
+    embedDescription: "Member #{server.member_count}",
+    color: "#f4a7c2",
+    imageUrl: "https://example.com/welcome.gif",
+    thumbnailMode: "none",
+  }));
 });
 
 test("concurrent changes are serialized without losing fields", async (t) => {
@@ -64,10 +105,10 @@ test("concurrent changes are serialized without losing fields", async (t) => {
     store.setEnabled(GUILD_ID, true),
   ]);
 
-  assert.deepEqual(store.getGuildConfig(GUILD_ID), {
+  assert.deepEqual(store.getGuildConfig(GUILD_ID), welcomeConfig({
     enabled: true,
     channelId: OTHER_CHANNEL_ID,
-  });
+  }));
 });
 
 test("malformed storage does not crash and a valid command repairs it", async (t) => {
@@ -78,10 +119,7 @@ test("malformed storage does not crash and a valid command repairs it", async (t
   await store.init();
 
   assert.equal(store.getHealth().ok, false);
-  assert.deepEqual(store.getGuildConfig(GUILD_ID), {
-    enabled: false,
-    channelId: null,
-  });
+  assert.deepEqual(store.getGuildConfig(GUILD_ID), welcomeConfig());
 
   await store.setChannel(GUILD_ID, CHANNEL_ID);
   assert.equal(store.getHealth().ok, true);
@@ -98,10 +136,7 @@ test("failed writes leave the last known configuration unchanged", async (t) => 
   await store.init();
 
   await assert.rejects(store.setChannel(GUILD_ID, CHANNEL_ID));
-  assert.deepEqual(store.getGuildConfig(GUILD_ID), {
-    enabled: false,
-    channelId: null,
-  });
+  assert.deepEqual(store.getGuildConfig(GUILD_ID), welcomeConfig());
   assert.equal(store.getHealth().ok, false);
   assert.ok(fixture.logger.entries.some(([level]) => level === "error"));
 });
