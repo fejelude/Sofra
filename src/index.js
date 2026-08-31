@@ -157,6 +157,11 @@ client.on(Events.MessageCreate, (message) => {
   void sofhiaEasterEggService.handleMessage(message);
 });
 
+client.on(Events.MessageUpdate, (_oldMessage, newMessage) => {
+  // Fetch partial edits so an innocent message cannot be edited to bypass Automod.
+  void (async () => automodService.handleMessage(newMessage.partial ? await newMessage.fetch() : newMessage))().catch((error) => logger.error("AUTOMOD_EDIT_FAILED", "An edited message could not be fetched safely.", error, { messageId: newMessage.id }));
+});
+
 client.on(Events.GuildRoleDelete, (role) => {
   levelService.handleRoleDelete(role);
   autoRoleService.handleRoleDelete(role);

@@ -7,7 +7,7 @@ import {
   MAX_TOTAL_XP,
 } from "./math.js";
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 const MAX_WARNING_HISTORY_PER_MEMBER = 25;
 
@@ -294,6 +294,17 @@ export class LevelStore {
           guild_id TEXT NOT NULL, word TEXT NOT NULL,
           tier INTEGER NOT NULL CHECK (tier BETWEEN 0 AND 3),
           PRIMARY KEY (guild_id, word)
+        );
+        CREATE TABLE IF NOT EXISTS automod_category_settings (
+          guild_id TEXT NOT NULL, category TEXT NOT NULL,
+          enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)), action TEXT NOT NULL,
+          PRIMARY KEY (guild_id, category)
+        );
+        CREATE TABLE IF NOT EXISTS automod_rules (
+          guild_id TEXT NOT NULL, term TEXT NOT NULL, category TEXT NOT NULL,
+          severity INTEGER NOT NULL CHECK (severity BETWEEN 0 AND 4),
+          action_override TEXT, normalized INTEGER NOT NULL DEFAULT 1 CHECK (normalized IN (0, 1)),
+          PRIMARY KEY (guild_id, term)
         );
       `);
 
@@ -871,7 +882,9 @@ export class LevelStore {
     const row = this.database.prepare("SELECT * FROM automod_config WHERE guild_id = ?").get(guildId);
     const roles = this.database.prepare("SELECT role_id, kind FROM automod_roles WHERE guild_id = ?").all(guildId);
     const channels = this.database.prepare("SELECT channel_id, mode FROM automod_channels WHERE guild_id = ?").all(guildId);
-    const words = this.database.prepare("SELECT word, tier FROM automod_words WHERE guild_id = ?").all(guildId);
+    const legacyWords = this.database.prepare("SELECT word, tier FROM automod_words WHERE guild_id = ?").all(guildId);
+    const rules = this.database.prepare("SELECT term, category, severity, action_override, normalized FROM automod_rules WHERE guild_id = ?").all(guildId);
+    const categoryRows = this.database.prepare("SELECT category, enabled, action FROM automod_category_settings WHERE guild_id = ?").all(guildId);
     return Object.freeze({
       guildId, enabled: row?.enabled === 1, mildAction: row?.mild_action ?? "allow",
       linksEnabled: row?.links_enabled === 1, invitesEnabled: row ? row.invites_enabled === 1 : true,
@@ -880,7 +893,8 @@ export class LevelStore {
       strikesEnabled: row ? row.strikes_enabled === 1 : true,
       roles: Object.freeze(roles.map((item) => Object.freeze({ roleId: item.role_id, kind: item.kind }))),
       channels: Object.freeze(channels.map((item) => Object.freeze({ channelId: item.channel_id, mode: item.mode }))),
-      words: Object.freeze(words.map((item) => Object.freeze({ word: item.word, tier: item.tier }))),
+      categories: Object.freeze(Object.fromEntries(categoryRows.map((item) => [item.category, Object.freeze({ enabled: item.enabled === 1, action: item.action })]))),
+      words: Object.freeze([...legacyWords.map((item) => Object.freeze({ word: item.word, tier: item.tier })), ...rules.map((item) => Object.freeze({ word: item.term, term: item.term, category: item.category, severity: item.severity, actionOverride: item.action_override, normalized: item.normalized === 1 }))]),
     });
   }
 
@@ -922,6 +936,31 @@ export class LevelStore {
     if (value.length < 2 || value.length > 50) throw new Error("Words must contain 2–50 characters.");
     if (tier === null) this.database.prepare("DELETE FROM automod_words WHERE guild_id=? AND word=?").run(guildId, value);
     else { validateInteger(tier, 0, 3, "Word tier"); this.database.prepare("INSERT OR REPLACE INTO automod_words VALUES (?, ?, ?)").run(guildId, value, tier); }
+    return this.getAutomodConfig(guildId);
+  }
+
+  setAutomodCategory(guildId, category, { enabled, action }) {
+    validateSnowflake(guildId, "Guild ID"); this.assertReady();
+    if (!/^[a-z_]{2,30}$/.test(category)) throw new Error("Invalid category.");
+    if (typeof enabled !== "boolean" || !/^[a-z_]{3,30}$/.test(action)) throw new Error("Invalid category setting.");
+    this.database.prepare("INSERT OR REPLACE INTO automod_category_settings VALUES (?, ?, ?, ?)").run(guildId, category, enabled ? 1 : 0, action);
+    return this.getAutomodConfig(guildId);
+  }
+
+  applyAutomodCategories(guildId, settings) {
+    validateSnowflake(guildId, "Guild ID"); this.assertReady();
+    const statement = this.database.prepare("INSERT OR REPLACE INTO automod_category_settings VALUES (?, ?, ?, ?)");
+    this.database.exec("BEGIN");
+    try { for (const [category, value] of Object.entries(settings)) statement.run(guildId, category, value.enabled ? 1 : 0, value.action); this.database.exec("COMMIT"); }
+    catch (error) { this.database.exec("ROLLBACK"); throw error; }
+    return this.getAutomodConfig(guildId);
+  }
+
+  setAutomodRule(guildId, term, rule = null) {
+    validateSnowflake(guildId, "Guild ID"); this.assertReady(); const value = String(term).trim().toLocaleLowerCase("und");
+    if (value.length < 2 || value.length > 100) throw new Error("Rules must contain 2–100 characters.");
+    if (!rule) this.database.prepare("DELETE FROM automod_rules WHERE guild_id=? AND term=?").run(guildId, value);
+    else { validateInteger(rule.severity, 0, 4, "Rule severity"); this.database.prepare("INSERT OR REPLACE INTO automod_rules VALUES (?, ?, ?, ?, ?, ?)").run(guildId, value, rule.category ?? "custom", rule.severity, rule.actionOverride ?? null, rule.normalized === false ? 0 : 1); }
     return this.getAutomodConfig(guildId);
   }
 
