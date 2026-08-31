@@ -8,6 +8,9 @@ const CONFIG_ENVIRONMENT_KEYS = [
   "DISCORD_GUILD_ID",
   "WELCOME_CONFIG_PATH",
   "LEVEL_DATABASE_PATH",
+  "UPSTASH_REDIS_REST_URL",
+  "UPSTASH_REDIS_REST_TOKEN",
+  "SOFRA_CONFIG_POLL_MS",
 ];
 const DEFAULT_STORE_PATH = fileURLToPath(
   new URL("../data/welcome-config.json", import.meta.url),
@@ -51,6 +54,16 @@ function optionalSnowflake(name) {
   return value;
 }
 
+function sharedConfigPollMs() {
+  const raw = process.env.SOFRA_CONFIG_POLL_MS?.trim();
+  if (!raw) return 4_000;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 2_000 || value > 60_000) {
+    throw new Error("SOFRA_CONFIG_POLL_MS must be an integer from 2000 to 60000 milliseconds.");
+  }
+  return value;
+}
+
 export function readRuntimeConfig() {
   loadOptionalDotEnv();
 
@@ -63,6 +76,14 @@ export function readRuntimeConfig() {
 
   const configuredPath = process.env.WELCOME_CONFIG_PATH?.trim();
   const configuredLevelDatabasePath = process.env.LEVEL_DATABASE_PATH?.trim();
+  const sharedConfigUrl = process.env.UPSTASH_REDIS_REST_URL?.trim() ?? "";
+  const sharedConfigToken = process.env.UPSTASH_REDIS_REST_TOKEN?.trim() ?? "";
+
+  if (Boolean(sharedConfigUrl) !== Boolean(sharedConfigToken)) {
+    throw new Error(
+      "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must either both be configured or both be omitted.",
+    );
+  }
 
   return Object.freeze({
     token,
@@ -71,5 +92,10 @@ export function readRuntimeConfig() {
     levelDatabasePath: configuredLevelDatabasePath
       ? resolve(process.cwd(), configuredLevelDatabasePath)
       : DEFAULT_LEVEL_DATABASE_PATH,
+    sharedConfig: Object.freeze({
+      url: sharedConfigUrl,
+      token: sharedConfigToken,
+      pollMs: sharedConfigPollMs(),
+    }),
   });
 }
