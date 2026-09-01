@@ -13,6 +13,7 @@ function welcomeConfig(overrides = {}) {
   return {
     enabled: false,
     channelId: null,
+    randomMessages: true,
     messageTemplate: null,
     embedTitle: null,
     embedDescription: null,
@@ -74,6 +75,7 @@ test("dashboard welcome customization survives a store restart", async (t) => {
   await first.init();
   await first.setChannel(GUILD_ID, CHANNEL_ID);
   await first.setCustomization(GUILD_ID, {
+    randomMessages: false,
     messageTemplate: "Hi {user.mention}! Welcome to {server.name} ♡",
     embedTitle: "Welcome, {user.name}! 🎀",
     embedDescription: "Member #{server.member_count}",
@@ -86,6 +88,7 @@ test("dashboard welcome customization survives a store restart", async (t) => {
   await second.init();
   assert.deepEqual(second.getGuildConfig(GUILD_ID), welcomeConfig({
     channelId: CHANNEL_ID,
+    randomMessages: false,
     messageTemplate: "Hi {user.mention}! Welcome to {server.name} ♡",
     embedTitle: "Welcome, {user.name}! 🎀",
     embedDescription: "Member #{server.member_count}",
@@ -93,6 +96,29 @@ test("dashboard welcome customization survives a store restart", async (t) => {
     imageUrl: "https://example.com/welcome.gif",
     thumbnailMode: "none",
   }));
+});
+
+test("legacy welcome documents default to randomized messages", async (t) => {
+  const fixture = await temporaryStore(t);
+  await writeFile(fixture.filePath, JSON.stringify({
+    version: 1,
+    guilds: {
+      [GUILD_ID]: {
+        enabled: true,
+        channelId: CHANNEL_ID,
+        messageTemplate: null,
+        embedTitle: null,
+        embedDescription: null,
+        color: null,
+        imageUrl: null,
+        thumbnailMode: "member",
+      },
+    },
+  }), "utf8");
+
+  const store = new JsonWelcomeConfigStore(fixture);
+  await store.init();
+  assert.equal(store.getGuildConfig(GUILD_ID).randomMessages, true);
 });
 
 test("concurrent changes are serialized without losing fields", async (t) => {

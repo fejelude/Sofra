@@ -362,6 +362,7 @@ export class SharedConfigSync {
   async applyWelcome(guildId, remote) {
     await this.welcomeStore.setChannel(guildId, remote.channelId ?? null);
     await this.welcomeStore.setCustomization(guildId, {
+      randomMessages: remote.randomMessages !== false,
       messageTemplate: remote.messageTemplate ?? null,
       embedTitle: remote.embedTitle ?? null,
       embedDescription: remote.embedDescription ?? null,

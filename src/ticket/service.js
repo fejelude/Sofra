@@ -49,7 +49,25 @@ function ticketNumber(id) {
   return String(id).padStart(4, "0");
 }
 
-export function buildTicketPanel() {
+export function buildTicketPanel(config = {}) {
+  const activeTypes = Object.entries(TYPES).filter(([type]) => config.types?.[type] !== false);
+  const fields = {
+    bug: {
+      name: "🪲 Bug Reports",
+      value:
+        "Report bugs, glitches, broken systems, exploits, or other game issues. Thorough, valid reports may be eligible for approximately **1,000–100,000 Robux**, depending on severity and importance. Critical bugs and exploits receive higher consideration; rewards are not guaranteed.",
+    },
+    report: {
+      name: "⚒️ Player Reports",
+      value:
+        "Report exploiting, bug abuse, scams, harassment, rule-breaking, or other harmful player behavior.",
+    },
+    other: {
+      name: "💬 Others",
+      value:
+        "Ask private questions or get help with account/game issues, general support, concerns, or anything that does not fit above.",
+    },
+  };
   const banner = new EmbedBuilder().setColor(SOFRA_PINK).setImage(PANEL_BANNER);
   const panel = new EmbedBuilder()
     .setColor(SOFRA_PINK)
@@ -58,34 +76,23 @@ export function buildTicketPanel() {
     .setDescription(
       "Choose the ticket type that best matches your concern. Sofra will create a private channel visible only to you and the staff team.",
     )
-    .addFields(
-      {
-        name: "🪲 Bug Reports",
-        value:
-          "Report bugs, glitches, broken systems, exploits, or other game issues. Thorough, valid reports may be eligible for approximately **1,000–100,000 Robux**, depending on severity and importance. Critical bugs and exploits receive higher consideration; rewards are not guaranteed.",
-      },
-      {
-        name: "⚒️ Player Reports",
-        value:
-          "Report exploiting, bug abuse, scams, harassment, rule-breaking, or other harmful player behavior.",
-      },
-      {
-        name: "💬 Others",
-        value:
-          "Ask private questions or get help with account/game issues, general support, concerns, or anything that does not fit above.",
-      },
-    )
+    .addFields(...activeTypes.map(([type]) => fields[type]))
     .setFooter({ text: "One open ticket per type, per member • Sofra ♡" });
-  const row = new ActionRowBuilder().addComponents(
-    ...Object.entries(TYPES).map(([type, details]) =>
-      new ButtonBuilder()
-        .setCustomId(`ticket:create:${type}`)
-        .setLabel(type === "other" ? "Others" : `${details.name}s`)
-        .setEmoji(details.emoji)
-        .setStyle(details.style),
-    ),
-  );
-  return { embeds: [banner, panel], components: [row] };
+
+  const components = activeTypes.length > 0
+    ? [
+        new ActionRowBuilder().addComponents(
+          ...activeTypes.map(([type, details]) =>
+            new ButtonBuilder()
+              .setCustomId(`ticket:create:${type}`)
+              .setLabel(type === "other" ? "Others" : `${details.name}s`)
+              .setEmoji(details.emoji)
+              .setStyle(details.style),
+          ),
+        ),
+      ]
+    : [];
+  return { embeds: [banner, panel], components };
 }
 
 export function buildTicketInformation(ticket) {
@@ -247,7 +254,7 @@ export class TicketService {
     }
 
     const panelMessage = await panelChannel.send({
-      ...buildTicketPanel(),
+      ...buildTicketPanel(previousTicketConfig),
       allowedMentions: { parse: [] },
     });
     try {
@@ -327,6 +334,14 @@ export class TicketService {
       return;
     }
     const config = this.store.getTicketConfig(interaction.guild.id);
+    if (config.enabled === false) {
+      await interaction.editReply("The ticket system is currently disabled.");
+      return;
+    }
+    if (config.types?.[type] === false) {
+      await interaction.editReply("That ticket type is currently disabled. Please use the current ticket panel.");
+      return;
+    }
     const category = config.categoryId
       ? interaction.guild.channels.cache.get(config.categoryId) ?? await interaction.guild.channels.fetch(config.categoryId).catch(() => null)
       : null;
