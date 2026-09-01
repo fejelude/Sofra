@@ -123,7 +123,7 @@ test("runtime permission guard blocks non-admin configuration attempts", async (
   assert.match(response, /Manage Server/);
 });
 
-test("random welcome mode ignores a saved fixed message", async () => {
+test("random welcome mode ignores saved fixed message and description overrides", async () => {
   const { service, member } = serviceFixture();
   let payload;
   const channel = {
@@ -135,10 +135,12 @@ test("random welcome mode ignores a saved fixed message", async () => {
   await service.sendWelcome(member, channel, {
     randomMessages: true,
     messageTemplate: "THIS FIXED MESSAGE MUST NOT BE USED",
+    embedDescription: "THIS FIXED DESCRIPTION MUST NOT BE USED",
   });
 
   const embed = payload.embeds[0].toJSON();
   assert.doesNotMatch(embed.description, /THIS FIXED MESSAGE MUST NOT BE USED/);
+  assert.doesNotMatch(embed.description, /THIS FIXED DESCRIPTION MUST NOT BE USED/);
 });
 
 test("custom welcome mode uses the configured fixed message", async () => {
