@@ -14,7 +14,7 @@ function serviceFixture() {
     error: (...args) => logEntries.push(["error", ...args]),
   };
   const store = {
-    getGuildConfig: () => ({ enabled: true, channelId: CHANNEL_ID }),
+    getGuildConfig: () => ({ enabled: true, channelId: CHANNEL_ID, randomMessages: true }),
   };
   const client = {
     user: {
@@ -123,6 +123,42 @@ test("runtime permission guard blocks non-admin configuration attempts", async (
   assert.match(response, /Manage Server/);
 });
 
+test("random welcome mode ignores a saved fixed message", async () => {
+  const { service, member } = serviceFixture();
+  let payload;
+  const channel = {
+    send: async (value) => {
+      payload = value;
+    },
+  };
+
+  await service.sendWelcome(member, channel, {
+    randomMessages: true,
+    messageTemplate: "THIS FIXED MESSAGE MUST NOT BE USED",
+  });
+
+  const embed = payload.embeds[0].toJSON();
+  assert.doesNotMatch(embed.description, /THIS FIXED MESSAGE MUST NOT BE USED/);
+});
+
+test("custom welcome mode uses the configured fixed message", async () => {
+  const { service, member } = serviceFixture();
+  let payload;
+  const channel = {
+    send: async (value) => {
+      payload = value;
+    },
+  };
+
+  await service.sendWelcome(member, channel, {
+    randomMessages: false,
+    messageTemplate: "Hello {user.mention}, this is the fixed dashboard message ♡",
+  });
+
+  const embed = payload.embeds[0].toJSON();
+  assert.match(embed.description, /fixed dashboard message/);
+});
+
 test("status reports every requested health and permission check", async () => {
   const { service } = serviceFixture();
   service.store.getHealth = () => ({
@@ -154,6 +190,7 @@ test("status reports every requested health and permission check", async () => {
 
   assert.deepEqual(fieldNames, [
     "🎀 System",
+    "💌 Message Mode",
     "🌸 Channel",
     "☁️ Channel Exists",
     "👁️ View Channel",
