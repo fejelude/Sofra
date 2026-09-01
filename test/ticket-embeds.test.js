@@ -23,6 +23,21 @@ test("ticket panel has the requested banner, descriptions, and three persistent 
   );
 });
 
+test("ticket panel respects dashboard-enabled ticket types", () => {
+  const panel = buildTicketPanel({
+    types: { bug: true, report: false, other: true },
+  });
+  const fields = panel.embeds[1].toJSON().fields;
+
+  assert.deepEqual(
+    panel.components[0].toJSON().components.map((button) => button.custom_id),
+    ["ticket:create:bug", "ticket:create:other"],
+  );
+  assert.ok(fields.some((field) => field.name.includes("Bug Reports")));
+  assert.ok(fields.some((field) => field.name.includes("Others")));
+  assert.ok(!fields.some((field) => field.name.includes("Player Reports")));
+});
+
 test("ticket information and Staff Logs include stable ticket metadata", () => {
   const information = buildTicketInformation(ticket).toJSON();
   assert.match(information.title, /#0001/);
