@@ -200,6 +200,11 @@ export class WelcomeService {
           inline: true,
         },
         {
+          name: "💌 Message Mode",
+          value: config.randomMessages !== false ? "Randomized Sofra messages" : "Custom fixed message",
+          inline: true,
+        },
+        {
           name: "🌸 Channel",
           value: statusChannelValue(config.channelId, inspection),
           inline: true,
@@ -302,10 +307,11 @@ export class WelcomeService {
   }
 
   sendWelcome(member, channel, config = this.store.getGuildConfig(member.guild.id)) {
+    const useRandomMessages = config.randomMessages !== false;
     const embed = buildWelcomeEmbed({
       member,
       clientUser: this.client.user,
-      messageTemplate: config.messageTemplate || undefined,
+      messageTemplate: useRandomMessages ? undefined : (config.messageTemplate || undefined),
       titleTemplate: config.embedTitle || undefined,
       descriptionTemplate: config.embedDescription || null,
       color: config.color || undefined,
