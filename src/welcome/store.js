@@ -9,6 +9,7 @@ import { dirname } from "node:path";
 
 const STORE_VERSION = 1;
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
+const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 const WRITE_ATTEMPTS = 3;
 
 function wait(milliseconds) {
@@ -19,10 +20,26 @@ function plainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function optionalString(value, maximumLength) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized ? normalized.slice(0, maximumLength) : null;
+}
+
 function copyConfig(config) {
+  const color = typeof config?.color === "string" && HEX_COLOR_PATTERN.test(config.color)
+    ? config.color.toLowerCase()
+    : null;
   return Object.freeze({
     enabled: config?.enabled === true,
     channelId: config?.channelId ?? null,
+    messageTemplate: optionalString(config?.messageTemplate, 1_800),
+    embedTitle: optionalString(config?.embedTitle, 256),
+    embedDescription: optionalString(config?.embedDescription, 4_000),
+    color,
+    imageUrl: optionalString(config?.imageUrl, 500),
+    thumbnailMode: config?.thumbnailMode === "none" ? "none" : "member",
   });
 }
 
@@ -40,7 +57,7 @@ function readDocument(raw) {
       !SNOWFLAKE_PATTERN.test(guildId) ||
       !plainObject(config) ||
       typeof config.enabled !== "boolean" ||
-      (config.channelId !== null && !SNOWFLAKE_PATTERN.test(config.channelId))
+      (config.channelId !== null && config.channelId !== undefined && !SNOWFLAKE_PATTERN.test(config.channelId))
     ) {
       issues.push(guildId);
       continue;
@@ -61,6 +78,54 @@ function createDocument(guilds) {
     version: STORE_VERSION,
     guilds: Object.fromEntries(entries),
   };
+}
+
+function validateCustomization(customization) {
+  if (!plainObject(customization)) {
+    throw new Error("Welcome customization must be an object.");
+  }
+
+  const limits = [
+    ["messageTemplate", 1_800],
+    ["embedTitle", 256],
+    ["embedDescription", 4_000],
+    ["imageUrl", 500],
+  ];
+  for (const [key, maximumLength] of limits) {
+    const value = customization[key];
+    if (value !== null && value !== undefined && typeof value !== "string") {
+      throw new Error(`${key} must be text or null.`);
+    }
+    if (typeof value === "string" && value.length > maximumLength) {
+      throw new Error(`${key} is too long.`);
+    }
+  }
+
+  if (
+    customization.color !== null &&
+    customization.color !== undefined &&
+    (typeof customization.color !== "string" || !HEX_COLOR_PATTERN.test(customization.color))
+  ) {
+    throw new Error("Welcome color must be a six-digit hex color such as #f4a7c2.");
+  }
+  if (
+    customization.thumbnailMode !== undefined &&
+    !["member", "none"].includes(customization.thumbnailMode)
+  ) {
+    throw new Error("Welcome thumbnail mode must be member or none.");
+  }
+
+  if (customization.imageUrl) {
+    let parsed;
+    try {
+      parsed = new URL(customization.imageUrl);
+    } catch {
+      throw new Error("Welcome image URL must be a valid HTTPS URL.");
+    }
+    if (parsed.protocol !== "https:") {
+      throw new Error("Welcome image URL must use HTTPS.");
+    }
+  }
 }
 
 export class JsonWelcomeConfigStore {
@@ -140,7 +205,10 @@ export class JsonWelcomeConfigStore {
   }
 
   setChannel(guildId, channelId) {
-    if (!SNOWFLAKE_PATTERN.test(guildId) || !SNOWFLAKE_PATTERN.test(channelId)) {
+    if (
+      !SNOWFLAKE_PATTERN.test(guildId) ||
+      (channelId !== null && !SNOWFLAKE_PATTERN.test(channelId))
+    ) {
       return Promise.reject(new Error("A valid Discord server and channel ID are required."));
     }
 
@@ -153,6 +221,28 @@ export class JsonWelcomeConfigStore {
     }
 
     return this.updateGuild(guildId, (current) => ({ ...current, enabled }));
+  }
+
+  setCustomization(guildId, customization) {
+    if (!SNOWFLAKE_PATTERN.test(guildId)) {
+      return Promise.reject(new Error("A valid Discord server ID is required."));
+    }
+
+    try {
+      validateCustomization(customization);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    return this.updateGuild(guildId, (current) => ({
+      ...current,
+      messageTemplate: customization.messageTemplate ?? null,
+      embedTitle: customization.embedTitle ?? null,
+      embedDescription: customization.embedDescription ?? null,
+      color: customization.color ?? null,
+      imageUrl: customization.imageUrl ?? null,
+      thumbnailMode: customization.thumbnailMode ?? "member",
+    }));
   }
 
   updateGuild(guildId, update) {

@@ -10,6 +10,7 @@ import { ModLogService } from "./modlog/service.js";
 import { ModerationService } from "./moderation/service.js";
 import { registerCommands } from "./register-command.js";
 import { readRuntimeConfig } from "./runtime-config.js";
+import { SharedConfigSync } from "./shared-config.js";
 import { SofhiaEasterEggService } from "./sofhia/service.js";
 import { TicketService } from "./ticket/service.js";
 import { WelcomeService } from "./welcome/service.js";
@@ -25,15 +26,23 @@ const client = new Client({
     GatewayIntentBits.GuildModeration,
   ],
 });
-const store = new JsonWelcomeConfigStore({
+const localWelcomeStore = new JsonWelcomeConfigStore({
   filePath: runtime.storePath,
   logger,
 });
-const welcomeService = new WelcomeService({ client, store, logger });
-const levelStore = new LevelStore({
+const localLevelStore = new LevelStore({
   filePath: runtime.levelDatabasePath,
   logger,
 });
+const sharedConfig = new SharedConfigSync({
+  ...runtime.sharedConfig,
+  levelStore: localLevelStore,
+  welcomeStore: localWelcomeStore,
+  logger,
+});
+const welcomeStore = sharedConfig.wrapWelcomeStore();
+const levelStore = sharedConfig.wrapLevelStore();
+const welcomeService = new WelcomeService({ client, store: welcomeStore, logger });
 const levelService = new LevelService({ client, store: levelStore, logger });
 const autoRoleService = new AutoRoleService({
   client,
@@ -78,7 +87,8 @@ process.on("uncaughtException", (error) => {
     "An unrecoverable exception occurred; Wispbyte should restart Sofra.",
     error,
   );
-  levelStore.close();
+  sharedConfig.stop();
+  localLevelStore.close();
   client.destroy();
   process.exit(1);
 });
@@ -90,7 +100,8 @@ async function shutdown(signal) {
 
   shuttingDown = true;
   logger.info("SHUTDOWN", `Received ${signal}; closing the Discord connection.`);
-  levelStore.close();
+  sharedConfig.stop();
+  localLevelStore.close();
   client.destroy();
 }
 
@@ -100,6 +111,14 @@ process.once("SIGTERM", () => void shutdown("SIGTERM"));
 client.once(Events.ClientReady, (readyClient) => {
   logger.info("BOT_READY", `Logged in as ${readyClient.user.tag}.`, {
     guildCount: readyClient.guilds.cache.size,
+  });
+
+  void sharedConfig.start(readyClient).catch((error) => {
+    logger.error(
+      "SHARED_CONFIG_START_FAILED",
+      "Sofra stayed online, but the shared dashboard configuration layer could not start. Local settings remain active.",
+      error,
+    );
   });
 
   void registerCommands(readyClient, runtime.guildId, logger).catch((error) => {
@@ -162,6 +181,10 @@ client.on(Events.MessageUpdate, (_oldMessage, newMessage) => {
   void (async () => automodService.handleMessage(newMessage.partial ? await newMessage.fetch() : newMessage))().catch((error) => logger.error("AUTOMOD_EDIT_FAILED", "An edited message could not be fetched safely.", error, { messageId: newMessage.id }));
 });
 
+client.on(Events.GuildCreate, (guild) => {
+  void sharedConfig.syncGuild(guild.id);
+});
+
 client.on(Events.GuildRoleDelete, (role) => {
   levelService.handleRoleDelete(role);
   autoRoleService.handleRoleDelete(role);
@@ -201,12 +224,12 @@ client.on("warn", (warning) => {
 });
 
 async function main() {
-  await Promise.all([store.init(), levelStore.init()]);
-  logger.info("WELCOME_STORE_READY", store.getHealth().message, {
-    healthy: store.getHealth().ok,
+  await Promise.all([localWelcomeStore.init(), localLevelStore.init()]);
+  logger.info("WELCOME_STORE_READY", localWelcomeStore.getHealth().message, {
+    healthy: localWelcomeStore.getHealth().ok,
   });
-  logger.info("LEVEL_STORE_READY", levelStore.getHealth().message, {
-    healthy: levelStore.getHealth().ok,
+  logger.info("LEVEL_STORE_READY", localLevelStore.getHealth().message, {
+    healthy: localLevelStore.getHealth().ok,
   });
 
   logger.info("BOT_STARTING", "Connecting Sofra to Discord.");

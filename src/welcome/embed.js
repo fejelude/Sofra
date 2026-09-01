@@ -19,28 +19,39 @@ export function chooseSofraColor() {
   return SOFRA_COLORS[randomInt(SOFRA_COLORS.length)];
 }
 
+function resolveColor(color) {
+  if (typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color)) {
+    return Number.parseInt(color.slice(1), 16);
+  }
+  return Number.isInteger(color) ? color : chooseSofraColor();
+}
+
 export function buildWelcomeEmbed({
   member,
   clientUser,
   messageTemplate = chooseWelcomeMessage(),
+  titleTemplate = "Welcome to {server.name}! 🎀",
+  descriptionTemplate = null,
   color = chooseSofraColor(),
+  imageUrl = null,
+  thumbnailMode = "member",
   now = new Date(),
 }) {
   const guildIcon = member.guild.iconURL({ extension: "png", size: 256 });
   const botAvatar = clientUser.displayAvatarURL({ extension: "png", size: 128 });
   const memberAvatar = member.displayAvatarURL({ extension: "png", size: 512 });
-  const serverName = renderWelcomeTemplate("{server.name}", member);
   const memberMention = renderWelcomeTemplate("{user.mention}", member);
+  const title = renderWelcomeTemplate(titleTemplate || "Welcome to {server.name}! 🎀", member);
+  const description = renderWelcomeTemplate(descriptionTemplate || messageTemplate, member);
 
-  return new EmbedBuilder()
-    .setColor(color)
+  const embed = new EmbedBuilder()
+    .setColor(resolveColor(color))
     .setAuthor({
       name: "♡ Sofra Welcomes You",
       iconURL: guildIcon ?? botAvatar,
     })
-    .setTitle(`Welcome to ${serverName}! 🎀`)
-    .setDescription(renderWelcomeTemplate(messageTemplate, member))
-    .setThumbnail(memberAvatar)
+    .setTitle(title)
+    .setDescription(description)
     .addFields(
       {
         name: "🌸 Member",
@@ -58,4 +69,13 @@ export function buildWelcomeEmbed({
       iconURL: botAvatar,
     })
     .setTimestamp(now);
+
+  if (thumbnailMode !== "none") {
+    embed.setThumbnail(memberAvatar);
+  }
+  if (typeof imageUrl === "string" && imageUrl.startsWith("https://")) {
+    embed.setImage(imageUrl);
+  }
+
+  return embed;
 }

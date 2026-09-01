@@ -169,7 +169,7 @@ export class WelcomeService {
     }
 
     const member = await interaction.guild.members.fetch(interaction.user.id);
-    await this.sendWelcome(member, inspection.channel);
+    await this.sendWelcome(member, inspection.channel, config);
 
     const disabledNote = config.enabled
       ? ""
@@ -275,7 +275,7 @@ export class WelcomeService {
         return;
       }
 
-      await this.sendWelcome(member, inspection.channel);
+      await this.sendWelcome(member, inspection.channel, config);
       this.recentWelcomes.set(key, Date.now());
     } catch (error) {
       this.logger.error(
@@ -301,8 +301,17 @@ export class WelcomeService {
     });
   }
 
-  sendWelcome(member, channel) {
-    const embed = buildWelcomeEmbed({ member, clientUser: this.client.user });
+  sendWelcome(member, channel, config = this.store.getGuildConfig(member.guild.id)) {
+    const embed = buildWelcomeEmbed({
+      member,
+      clientUser: this.client.user,
+      messageTemplate: config.messageTemplate || undefined,
+      titleTemplate: config.embedTitle || undefined,
+      descriptionTemplate: config.embedDescription || null,
+      color: config.color || undefined,
+      imageUrl: config.imageUrl || null,
+      thumbnailMode: config.thumbnailMode || "member",
+    });
 
     return channel.send({
       embeds: [embed],
