@@ -34,6 +34,7 @@ function copyConfig(config) {
   return Object.freeze({
     enabled: config?.enabled === true,
     channelId: config?.channelId ?? null,
+    randomMessages: config?.randomMessages !== false,
     messageTemplate: optionalString(config?.messageTemplate, 1_800),
     embedTitle: optionalString(config?.embedTitle, 256),
     embedDescription: optionalString(config?.embedDescription, 4_000),
@@ -101,6 +102,12 @@ function validateCustomization(customization) {
     }
   }
 
+  if (
+    customization.randomMessages !== undefined &&
+    typeof customization.randomMessages !== "boolean"
+  ) {
+    throw new Error("Random welcome mode must be true or false.");
+  }
   if (
     customization.color !== null &&
     customization.color !== undefined &&
@@ -236,6 +243,7 @@ export class JsonWelcomeConfigStore {
 
     return this.updateGuild(guildId, (current) => ({
       ...current,
+      randomMessages: customization.randomMessages ?? current.randomMessages,
       messageTemplate: customization.messageTemplate ?? null,
       embedTitle: customization.embedTitle ?? null,
       embedDescription: customization.embedDescription ?? null,
