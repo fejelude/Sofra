@@ -313,7 +313,7 @@ export class WelcomeService {
       clientUser: this.client.user,
       messageTemplate: useRandomMessages ? undefined : (config.messageTemplate || undefined),
       titleTemplate: config.embedTitle || undefined,
-      descriptionTemplate: config.embedDescription || null,
+      descriptionTemplate: useRandomMessages ? null : (config.embedDescription || null),
       color: config.color || undefined,
       imageUrl: config.imageUrl || null,
       thumbnailMode: config.thumbnailMode || "member",
