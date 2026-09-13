@@ -11,6 +11,8 @@ const CONFIG_ENVIRONMENT_KEYS = [
   "UPSTASH_REDIS_REST_URL",
   "UPSTASH_REDIS_REST_TOKEN",
   "SOFRA_CONFIG_POLL_MS",
+  "GEMINI_API_KEY",
+  "GEMINI_MODEL",
 ];
 const DEFAULT_STORE_PATH = fileURLToPath(
   new URL("../data/welcome-config.json", import.meta.url),
@@ -92,6 +94,10 @@ export function readRuntimeConfig() {
     levelDatabasePath: configuredLevelDatabasePath
       ? resolve(process.cwd(), configuredLevelDatabasePath)
       : DEFAULT_LEVEL_DATABASE_PATH,
+    ai: Object.freeze({
+      geminiApiKey: process.env.GEMINI_API_KEY?.trim() ?? "",
+      model: process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash",
+    }),
     sharedConfig: Object.freeze({
       url: sharedConfigUrl,
       token: sharedConfigToken,
