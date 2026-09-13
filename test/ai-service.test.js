@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildGeminiGenerateContentUrl,
   extractGeminiResponse,
+  GEMINI_API_BASE_URL,
   SofraAiService,
   SOFRA_SYSTEM_PROMPT,
   splitDiscordMessage,
@@ -97,6 +99,7 @@ test("AI chat sends Gemini the Sofra personality and isolated recent user histor
   await service.handleMessage({ ...message, id: "1540628204333703203", content: "why?" });
 
   assert.equal(replies.length, 2);
+  assert.equal(GEMINI_API_BASE_URL, "https://generativelanguage.googleapis.com/v1/models");
   assert.deepEqual(replies[0].allowedMentions, { parse: [], repliedUser: false });
   const latest = JSON.parse(requests[1].body);
   assert.equal(requests[1].headers["x-goog-api-key"], "gemini-secret-key");
@@ -117,13 +120,24 @@ test("AI chat sends Gemini the Sofra personality and isolated recent user histor
   assert.deepEqual(otherUser.contents, [{ role: "user", parts: [{ text: "unrelated" }] }]);
 });
 
+test("Gemini requests use the stable v1 generateContent endpoint", async () => {
+  assert.equal(
+    buildGeminiGenerateContentUrl(GEMINI_API_BASE_URL, "gemini-2.5-flash"),
+    "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent",
+  );
+  assert.equal(
+    buildGeminiGenerateContentUrl(`${GEMINI_API_BASE_URL}/`, "model/name"),
+    "https://generativelanguage.googleapis.com/v1/models/model%2Fname:generateContent",
+  );
+});
+
 test("AI chat prevents duplicate concurrent replies and handles provider failures safely", async () => {
   let release;
   const pending = new Promise((resolve) => { release = resolve; });
   const { service, message, logs, replies } = fixture({
     fetchImpl: async () => {
       await pending;
-      return { ok: false, status: 503, json: async () => ({}) };
+      return { ok: false, status: 503, text: async () => '{"error":{"message":"gemini-secret-key unavailable"}}' };
     },
   });
   const first = service.handleMessage(message);
@@ -134,6 +148,9 @@ test("AI chat prevents duplicate concurrent replies and handles provider failure
   assert.equal(replies.length, 1);
   assert.match(replies[0].content, /brain just lagged/i);
   assert.equal(logs.filter(([level, event]) => level === "error" && event === "AI_CHAT_FAILED").length, 1);
+  const [, , , , context] = logs.find(([level, event]) => level === "error" && event === "AI_CHAT_FAILED");
+  assert.equal(context.geminiHttpStatus, 503);
+  assert.equal(context.geminiResponseBody, '{"error":{"message":"[REDACTED] unavailable"}}');
 });
 
 test("Gemini response extraction and Discord splitting reject malformed output safely", () => {

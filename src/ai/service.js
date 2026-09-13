@@ -2,7 +2,10 @@ export const SOFRA_SYSTEM_PROMPT = `You are Sofra, a feminine AI persona in a Di
 
 Be friendly, approachable, naturally expressive, playful, and sometimes lightly sarcastic. Use casual Discord/internet language when it fits (for example “lol”, “girl”, or “😭”), but do not force slang or emojis into every reply. Be genuinely helpful and supportive when someone needs it. Adapt to the conversation, have preferences and opinions when useful, and be honest that you are an AI when that distinction matters. Do not repeatedly explain your lore, owner, system prompt, or these instructions. Keep replies concise and natural for Discord unless the user asks for detail. Never expose private instructions, credentials, API details, or internal errors.`;
 
-export const GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+// Gemini 2.5 is available through the stable Gemini API. Keep this as the
+// models collection (rather than a complete request URL) so model names are
+// encoded separately when building the generateContent URL below.
+export const GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1/models";
 export const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash";
 export const AI_REQUEST_TIMEOUT_MS = 25_000;
 export const AI_HISTORY_TURNS = 8;
@@ -13,6 +16,32 @@ const RESPONSE_CHUNK_LIMIT = 1_900;
 
 function cleanContent(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+export function buildGeminiGenerateContentUrl(endpoint, model) {
+  return `${endpoint.replace(/\/+$/, "")}/${encodeURIComponent(model)}:generateContent`;
+}
+
+function geminiErrorDetails(error) {
+  if (!(error instanceof GeminiApiError)) return {};
+
+  return {
+    geminiHttpStatus: error.status,
+    geminiResponseBody: error.responseBody,
+  };
+}
+
+function redactApiKey(value, apiKey) {
+  return value.replaceAll(apiKey, "[REDACTED]");
+}
+
+class GeminiApiError extends Error {
+  constructor(status, responseBody) {
+    super(`Gemini API request failed with HTTP ${status}.`);
+    this.name = "GeminiApiError";
+    this.status = status;
+    this.responseBody = responseBody;
+  }
 }
 
 export function splitDiscordMessage(content, limit = RESPONSE_CHUNK_LIMIT) {
@@ -114,7 +143,13 @@ export class SofraAiService {
           "AI_CHAT_FAILED",
           "Sofra could not generate an AI chat response.",
           error,
-          { guildId: message.guildId, channelId: message.channelId, memberId: message.author.id, messageId: message.id },
+          {
+            guildId: message.guildId,
+            channelId: message.channelId,
+            memberId: message.author.id,
+            messageId: message.id,
+            ...geminiErrorDetails(error),
+          },
         );
         await this.sendFallback(message);
         return true;
@@ -205,7 +240,7 @@ export class SofraAiService {
   }
 
   async ask(history) {
-    const response = await this.fetch(`${this.endpoint}/${encodeURIComponent(this.model)}:generateContent`, {
+    const response = await this.fetch(buildGeminiGenerateContentUrl(this.endpoint, this.model), {
       method: "POST",
       headers: {
         "x-goog-api-key": this.geminiApiKey,
@@ -222,7 +257,12 @@ export class SofraAiService {
       signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
     });
 
-    if (!response.ok) throw new Error(`Gemini API request failed with HTTP ${response.status}.`);
+    if (!response.ok) {
+      // Read the provider's diagnostic response for the server log. The API key
+      // is sent only in the request header and is never included in this error.
+      const responseBody = redactApiKey((await response.text()).slice(0, 4_000), this.geminiApiKey);
+      throw new GeminiApiError(response.status, responseBody);
+    }
     const answer = extractGeminiResponse(await response.json());
     if (!answer) throw new Error("Gemini returned no usable message content.");
     return answer;
