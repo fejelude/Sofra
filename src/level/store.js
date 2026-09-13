@@ -7,7 +7,7 @@ import {
   MAX_TOTAL_XP,
 } from "./math.js";
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 const MAX_WARNING_HISTORY_PER_MEMBER = 25;
 
@@ -42,6 +42,13 @@ function mapAutoRoleConfig(row, guildId) {
     guildId,
     enabled: row?.enabled === 1,
     roleId: row?.role_id ?? null,
+  });
+}
+
+function mapAiConfig(row, guildId) {
+  return Object.freeze({
+    guildId,
+    channelId: row?.channel_id ?? null,
   });
 }
 
@@ -180,6 +187,12 @@ export class LevelStore {
           guild_id TEXT PRIMARY KEY,
           enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
           role_id TEXT,
+          updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS ai_chat_config (
+          guild_id TEXT PRIMARY KEY,
+          channel_id TEXT NOT NULL,
           updated_at INTEGER NOT NULL
         );
 
@@ -435,6 +448,19 @@ export class LevelStore {
         SELECT enabled, role_id
         FROM auto_role_config
         WHERE guild_id = ?
+      `),
+      getAiConfig: this.database.prepare(`
+        SELECT channel_id FROM ai_chat_config WHERE guild_id = ?
+      `),
+      setAiChannel: this.database.prepare(`
+        INSERT INTO ai_chat_config (guild_id, channel_id, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET
+          channel_id = excluded.channel_id,
+          updated_at = excluded.updated_at
+      `),
+      clearAiChannel: this.database.prepare(`
+        DELETE FROM ai_chat_config WHERE guild_id = ?
       `),
       setAutoRole: this.database.prepare(`
         INSERT INTO auto_role_config (guild_id, role_id, updated_at)
@@ -968,6 +994,27 @@ export class LevelStore {
     validateSnowflake(guildId, "Guild ID");
     this.assertReady();
     return mapAutoRoleConfig(this.statements.getAutoRole.get(guildId), guildId);
+  }
+
+  getAiConfig(guildId) {
+    validateSnowflake(guildId, "Guild ID");
+    this.assertReady();
+    return mapAiConfig(this.statements.getAiConfig.get(guildId), guildId);
+  }
+
+  setAiChannel(guildId, channelId) {
+    validateSnowflake(guildId, "Guild ID");
+    validateSnowflake(channelId, "AI channel ID");
+    this.assertReady();
+    this.statements.setAiChannel.run(guildId, channelId, Date.now());
+    return this.getAiConfig(guildId);
+  }
+
+  clearAiChannel(guildId) {
+    validateSnowflake(guildId, "Guild ID");
+    this.assertReady();
+    this.statements.clearAiChannel.run(guildId);
+    return this.getAiConfig(guildId);
   }
 
   setAutoRole(guildId, roleId) {

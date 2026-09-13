@@ -77,6 +77,16 @@ message archive. Configuration happens through Discord slash commands.
   strikes in the existing warning history
 - Detailed incidents sent through the existing private Staff Logs channel
 
+### AI chat channel
+
+- Optional, channel-scoped AI chat powered by Google Gemini using Gemini 2.5 Flash by default
+- Sofra keeps a small, in-memory, per-user recent conversation window for 30 minutes;
+  it is never written to the database or shared between users
+- Bounded request timeouts, duplicate-request protection, safe error replies, and
+  Discord-length-aware response splitting
+- Server administrators choose the channel from Discord with `/ai channel`; use
+  `/ai status` to view it or `/ai disable` to turn AI chat off for that server
+
 ### Private moderation logs
 
 - One-command creation of a private `Moderation` category and `#staff-logs`
@@ -128,6 +138,9 @@ message archive. Configuration happens through Discord slash commands.
     booster role. The thank-you channel needs **View Channel**, **Send Messages**,
     and **Embed Links**. Sofra also needs access and **Read Message History** in
     the channel containing the referenced Nitro GIF message.
+11. To enable AI chat, create a Google AI Studio key, set `GEMINI_API_KEY`, then run `/ai channel channel:#channel`
+    as a server administrator. The configured channel needs **View Channel**, **Send
+    Messages**, and **Read Message History**.
 
 The level system deliberately ignores message text when awarding XP. Message
 Content Intent is used only by passive text-trigger features; matching happens
@@ -373,6 +386,8 @@ levels.
 | `DISCORD_GUILD_ID` | No | Registers all Sofra slash commands immediately in one server |
 | `WELCOME_CONFIG_PATH` | No | Overrides the welcome JSON path |
 | `LEVEL_DATABASE_PATH` | No | Overrides the level SQLite path |
+| `GEMINI_API_KEY` | Yes, when AI is enabled | Google AI Studio API key; keep it only in deployment secrets or `.env`; choose the channel with `/ai channel` |
+| `GEMINI_MODEL` | No | Gemini model to use; defaults to `gemini-2.5-flash` |
 
 No external database, migration command, port, web URL, or additional secret is
 required.

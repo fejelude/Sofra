@@ -1,6 +1,7 @@
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { AutoRoleService } from "./autorole/service.js";
 import { AutomodService } from "./automod/service.js";
+import { SofraAiService } from "./ai/service.js";
 import { BoosterService } from "./booster/service.js";
 import { CommunityService } from "./community/service.js";
 import { LevelService } from "./level/service.js";
@@ -70,6 +71,7 @@ const ticketService = new TicketService({
   logger,
   modLogService,
 });
+const aiService = new SofraAiService({ ...runtime.ai, store: levelStore, logger });
 
 let shuttingDown = false;
 
@@ -113,6 +115,17 @@ client.once(Events.ClientReady, (readyClient) => {
     guildCount: readyClient.guilds.cache.size,
   });
 
+  if (!runtime.ai.geminiApiKey) {
+    logger.warn(
+      "AI_CHAT_DISABLED",
+      "GEMINI_API_KEY is missing, so AI chat configuration is disabled.",
+    );
+  } else if (aiService.enabled) {
+    logger.info("AI_CHAT_READY", "Sofra AI chat is enabled for the configured channel.", {
+      model: runtime.ai.model,
+    });
+  }
+
   void sharedConfig.start(readyClient).catch((error) => {
     logger.error(
       "SHARED_CONFIG_START_FAILED",
@@ -133,6 +146,9 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.InteractionCreate, (interaction) => {
   void (async () => {
+    if (await aiService.handleInteraction(interaction)) {
+      return;
+    }
     if (await welcomeService.handleInteraction(interaction)) {
       return;
     }
@@ -171,9 +187,14 @@ client.on(Events.GuildMemberUpdate, (oldMember, newMember) => {
 });
 
 client.on(Events.MessageCreate, (message) => {
-  void automodService.handleMessage(message);
-  void levelService.handleMessage(message);
-  void sofhiaEasterEggService.handleMessage(message);
+  void (async () => {
+    // Give moderation first refusal so deleted or warned messages are never sent to AI.
+    if (await automodService.handleMessage(message)) return;
+
+    void levelService.handleMessage(message);
+    if (await aiService.handleMessage(message)) return;
+    void sofhiaEasterEggService.handleMessage(message);
+  })().catch((error) => logger.error("MESSAGE_CREATE_FAILED", "A message event could not be handled safely.", error, { messageId: message.id }));
 });
 
 client.on(Events.MessageUpdate, (_oldMessage, newMessage) => {
