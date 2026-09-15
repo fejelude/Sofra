@@ -1,9 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  buildGeminiGenerateContentUrl,
-  extractGeminiResponse,
-  GEMINI_API_BASE_URL,
+  LLAMA_API_BASE_URL,
+  LLAMA_MODEL,
   SofraAiService,
   SOFRA_SYSTEM_PROMPT,
   splitDiscordMessage,
@@ -13,21 +12,27 @@ const GUILD_ID = "1540617362477162506";
 const CHANNEL_ID = "1540628204333703201";
 const MEMBER_ID = "1540628204333703198";
 
-function fixture({ response = "hey girl 😭", fetchImpl } = {}) {
+function fixture({ response = "hey girl 😭", create } = {}) {
   const logs = [];
   const replies = [];
   const requests = [];
+  const openaiClient = {
+    chat: {
+      completions: {
+        create: create ?? (async (request) => {
+          requests.push(request);
+          return { choices: [{ message: { content: response } }] };
+        }),
+      },
+    },
+  };
   const service = new SofraAiService({
-    geminiApiKey: "gemini-secret-key",
+    openaiClient,
     store: { getAiConfig: () => ({ channelId: CHANNEL_ID }) },
     logger: {
       error: (...args) => logs.push(["error", ...args]),
       warn: (...args) => logs.push(["warn", ...args]),
     },
-    fetchImpl: fetchImpl ?? (async (_url, options) => {
-      requests.push(options);
-      return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: response }] } }] }) };
-    }),
   });
   const message = {
     id: "1540628204333703199",
@@ -58,104 +63,61 @@ test("/ai channel saves the selected channel without requiring a manually copied
   let reply = null;
   const { service } = fixture();
   service.store = {
-    setAiChannel: (_guildId, channelId) => {
-      savedChannelId = channelId;
-    },
+    setAiChannel: (_guildId, channelId) => { savedChannelId = channelId; },
     getAiConfig: () => ({ channelId: savedChannelId }),
-    clearAiChannel: () => {
-      savedChannelId = null;
-    },
+    clearAiChannel: () => { savedChannelId = null; },
   };
   const interaction = {
-    commandName: "ai",
-    guildId: GUILD_ID,
-    guild: { id: GUILD_ID },
-    user: { id: MEMBER_ID },
-    deferred: false,
-    replied: false,
-    inGuild: () => true,
-    isChatInputCommand: () => true,
-    memberPermissions: { has: () => true },
-    deferReply: async () => {
-      interaction.deferred = true;
-    },
-    editReply: async (content) => {
-      reply = content;
-    },
-    options: {
-      getSubcommand: () => "channel",
-      getChannel: () => ({ id: CHANNEL_ID, toString: () => "#ai-chat" }),
-    },
+    commandName: "ai", guildId: GUILD_ID, guild: { id: GUILD_ID }, user: { id: MEMBER_ID }, deferred: false, replied: false,
+    inGuild: () => true, isChatInputCommand: () => true, memberPermissions: { has: () => true },
+    deferReply: async () => { interaction.deferred = true; }, editReply: async (content) => { reply = content; },
+    options: { getSubcommand: () => "channel", getChannel: () => ({ id: CHANNEL_ID, toString: () => "#ai-chat" }) },
   };
-
   assert.equal(await service.handleInteraction(interaction), true);
   assert.equal(savedChannelId, CHANNEL_ID);
   assert.match(reply, /#ai-chat/);
 });
 
-test("AI chat sends Gemini the Sofra personality and isolated recent user history", async () => {
+test("AI chat sends the intact Sofra personality and isolated history through OpenAI chat completions", async () => {
   const { service, message, replies, requests } = fixture({ response: "first answer" });
   await service.handleMessage(message);
   await service.handleMessage({ ...message, id: "1540628204333703203", content: "why?" });
-
   assert.equal(replies.length, 2);
-  assert.equal(GEMINI_API_BASE_URL, "https://generativelanguage.googleapis.com/v1/models");
+  assert.equal(LLAMA_API_BASE_URL, "https://cambridge-employees-attach-camping.trycloudflare.com/v1");
+  assert.equal(LLAMA_MODEL, "llama-3.1-8b");
   assert.deepEqual(replies[0].allowedMentions, { parse: [], repliedUser: false });
-  const latest = JSON.parse(requests[1].body);
-  assert.equal(requests[1].headers["x-goog-api-key"], "gemini-secret-key");
-  assert.equal(latest.systemInstruction.parts[0].text, SOFRA_SYSTEM_PROMPT);
-  assert.deepEqual(latest.contents, [
-    { role: "user", parts: [{ text: "what do you think?" }] },
-    { role: "model", parts: [{ text: "first answer" }] },
-    { role: "user", parts: [{ text: "why?" }] },
-  ]);
-
-  await service.handleMessage({
-    ...message,
-    id: "1540628204333703204",
-    author: { id: "1540628204333703210", bot: false },
-    content: "unrelated",
+  assert.deepEqual(requests[1], {
+    model: "llama-3.1-8b", temperature: 0.7,
+    messages: [
+      { role: "system", content: SOFRA_SYSTEM_PROMPT },
+      { role: "user", content: "what do you think?" },
+      { role: "assistant", content: "first answer" },
+      { role: "user", content: "why?" },
+    ],
   });
-  const otherUser = JSON.parse(requests[2].body);
-  assert.deepEqual(otherUser.contents, [{ role: "user", parts: [{ text: "unrelated" }] }]);
 });
 
-test("Gemini requests use the stable v1 generateContent endpoint", async () => {
-  assert.equal(
-    buildGeminiGenerateContentUrl(GEMINI_API_BASE_URL, "gemini-2.5-flash"),
-    "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent",
-  );
-  assert.equal(
-    buildGeminiGenerateContentUrl(`${GEMINI_API_BASE_URL}/`, "model/name"),
-    "https://generativelanguage.googleapis.com/v1/models/model%2Fname:generateContent",
-  );
-});
-
-test("AI chat prevents duplicate concurrent replies and handles provider failures safely", async () => {
+test("AI chat sends Discord's typing indicator before local inference and handles failures safely", async () => {
   let release;
   const pending = new Promise((resolve) => { release = resolve; });
   const { service, message, logs, replies } = fixture({
-    fetchImpl: async () => {
-      await pending;
-      return { ok: false, status: 503, text: async () => '{"error":{"message":"gemini-secret-key unavailable"}}' };
-    },
+    create: async () => { await pending; const error = new Error("unavailable"); error.status = 503; throw error; },
   });
+  let typingSent = false;
+  message.channel.sendTyping = async () => { typingSent = true; };
   const first = service.handleMessage(message);
   const duplicate = service.handleMessage(message);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(typingSent, true);
   release();
   assert.equal(await duplicate, true);
   assert.equal(await first, true);
   assert.equal(replies.length, 1);
-  assert.match(replies[0].content, /brain just lagged/i);
-  assert.equal(logs.filter(([level, event]) => level === "error" && event === "AI_CHAT_FAILED").length, 1);
   const [, , , , context] = logs.find(([level, event]) => level === "error" && event === "AI_CHAT_FAILED");
-  assert.equal(context.geminiHttpStatus, 503);
-  assert.equal(context.geminiResponseBody, '{"error":{"message":"[REDACTED] unavailable"}}');
+  assert.equal(context.openAiStatus, 503);
 });
 
-test("Gemini response extraction and Discord splitting reject malformed output safely", () => {
-  assert.equal(extractGeminiResponse({ candidates: [{ content: { parts: [{ text: "  hello  " }] } }] }), "hello");
-  assert.equal(extractGeminiResponse({ candidates: [{ content: {} }] }), "");
+test("Discord splitting rejects empty output safely", () => {
   const chunks = splitDiscordMessage("a".repeat(4_000));
   assert.equal(chunks.length, 3);
   assert.ok(chunks.every((chunk) => chunk.length <= 1_900));
