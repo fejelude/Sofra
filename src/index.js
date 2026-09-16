@@ -115,10 +115,14 @@ client.once(Events.ClientReady, (readyClient) => {
     guildCount: readyClient.guilds.cache.size,
   });
 
-  if (aiService.enabled) {
+  if (!runtime.ai.geminiApiKey) {
+    logger.warn(
+      "AI_CHAT_DISABLED",
+      "GEMINI_API_KEY is missing, so AI chat configuration is disabled.",
+    );
+  } else if (aiService.enabled) {
     logger.info("AI_CHAT_READY", "Sofra AI chat is enabled for the configured channel.", {
-      model: aiService.model,
-      baseUrl: runtime.ai.baseUrl,
+      model: runtime.ai.model,
     });
   }
 
