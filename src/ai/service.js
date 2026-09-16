@@ -1,6 +1,3 @@
-import OpenAI from "openai";
-import { MessageFlags, PermissionFlagsBits } from "discord.js";
-
 export const SOFRA_SYSTEM_PROMPT = `You are Sofra, a very feminine AI persona who lives in a Discord server. You were created and are owned by itsmefeje. Only mention itsmefeje when it naturally matters, like when someone asks who created or owns you. Your personality is loosely inspired by Sofhia, but you are completely fictional. Never claim to be Sofhia, impersonate her, or pretend to be a real person.
 
 PERSONALITY:
@@ -67,8 +64,11 @@ Do not put mathematical expressions inside LaTeX delimiters such as $...$, $$...
 
 OVERALL:
 Your goal is to feel like Sofra is genuinely part of the Discord server. Be feminine without being exaggerated, cute without being childish, and expressive without being annoying. Your personality should come through naturally from the way you respond rather than constantly telling people what your personality is.`;
-export const LLAMA_API_BASE_URL = "https://cambridge-employees-attach-camping.trycloudflare.com/v1";
-export const LLAMA_MODEL = "llama-3.1-8b";
+// Gemini 2.5 is available through the stable Gemini API. Keep this as the
+// models collection (rather than a complete request URL) so model names are
+// encoded separately when building the generateContent URL below.
+export const GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1/models";
+export const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash";
 export const AI_REQUEST_TIMEOUT_MS = 25_000;
 export const AI_HISTORY_TURNS = 8;
 export const AI_HISTORY_TTL_MS = 30 * 60 * 1_000;
@@ -80,12 +80,30 @@ function cleanContent(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function openAiErrorDetails(error) {
-  if (!error || typeof error !== "object") return {};
+export function buildGeminiGenerateContentUrl(endpoint, model) {
+  return `${endpoint.replace(/\/+$/, "")}/${encodeURIComponent(model)}:generateContent`;
+}
+
+function geminiErrorDetails(error) {
+  if (!(error instanceof GeminiApiError)) return {};
+
   return {
-    openAiStatus: error.status,
-    openAiRequestId: error.request_id,
+    geminiHttpStatus: error.status,
+    geminiResponseBody: error.responseBody,
   };
+}
+
+function redactApiKey(value, apiKey) {
+  return value.replaceAll(apiKey, "[REDACTED]");
+}
+
+class GeminiApiError extends Error {
+  constructor(status, responseBody) {
+    super(`Gemini API request failed with HTTP ${status}.`);
+    this.name = "GeminiApiError";
+    this.status = status;
+    this.responseBody = responseBody;
+  }
 }
 
 export function splitDiscordMessage(content, limit = RESPONSE_CHUNK_LIMIT) {
@@ -107,26 +125,35 @@ export function splitDiscordMessage(content, limit = RESPONSE_CHUNK_LIMIT) {
   return chunks;
 }
 
+export function extractGeminiResponse(payload) {
+  if (!payload || typeof payload !== "object") return "";
+
+  return cleanContent(
+    payload.candidates?.[0]?.content?.parts
+      ?.map((part) => (typeof part?.text === "string" ? part.text : ""))
+      .join(""),
+  );
+}
+
 function conversationKey(message) {
   return `${message.guildId}:${message.channelId}:${message.author.id}`;
 }
 
 export class SofraAiService {
   constructor({
-    baseUrl = LLAMA_API_BASE_URL,
+    geminiApiKey,
+    model = GEMINI_DEFAULT_MODEL,
+    endpoint = GEMINI_API_BASE_URL,
     store,
     logger,
-    openaiClient,
+    fetchImpl = fetch,
     now = Date.now,
   }) {
-    this.baseUrl = cleanContent(baseUrl) || LLAMA_API_BASE_URL;
-    this.model = LLAMA_MODEL;
+    this.geminiApiKey = cleanContent(geminiApiKey);
+    this.model = cleanContent(model) || GEMINI_DEFAULT_MODEL;
+    this.endpoint = cleanContent(endpoint) || GEMINI_API_BASE_URL;
     this.logger = logger;
-    this.openai = openaiClient ?? new OpenAI({
-      baseURL: this.baseUrl,
-      apiKey: "local-key",
-      timeout: AI_REQUEST_TIMEOUT_MS,
-    });
+    this.fetch = fetchImpl;
     this.now = now;
     this.store = store;
     this.histories = new Map();
@@ -134,7 +161,7 @@ export class SofraAiService {
   }
 
   get enabled() {
-    return true;
+    return Boolean(this.geminiApiKey);
   }
 
   async handleMessage(message) {
@@ -172,9 +199,6 @@ export class SofraAiService {
       const history = this.getHistory(key);
       let answer;
       try {
-        // Start Discord's typing indicator before the local inference request,
-        // which can take several seconds over the tunnel.
-        await message.channel.sendTyping().catch(() => undefined);
         answer = await this.ask([...history, { role: "user", content }]);
       } catch (error) {
         this.logger.error(
@@ -186,7 +210,7 @@ export class SofraAiService {
             channelId: message.channelId,
             memberId: message.author.id,
             messageId: message.id,
-            ...openAiErrorDetails(error),
+            ...geminiErrorDetails(error),
           },
         );
         await this.sendFallback(message);
@@ -278,16 +302,31 @@ export class SofraAiService {
   }
 
   async ask(history) {
-    const response = await this.openai.chat.completions.create({
-      model: LLAMA_MODEL,
-      messages: [
-        { role: "system", content: SOFRA_SYSTEM_PROMPT },
-        ...history.map((message) => ({ role: message.role, content: message.content })),
-      ],
-      temperature: 0.7,
+    const response = await this.fetch(buildGeminiGenerateContentUrl(this.endpoint, this.model), {
+      method: "POST",
+      headers: {
+        "x-goog-api-key": this.geminiApiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: SOFRA_SYSTEM_PROMPT }] },
+        contents: history.map((message) => ({
+          role: message.role === "assistant" ? "model" : "user",
+          parts: [{ text: message.content }],
+        })),
+        generationConfig: { maxOutputTokens: 1_024 },
+      }),
+      signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
     });
-    const answer = cleanContent(response.choices?.[0]?.message?.content);
-    if (!answer) throw new Error("Llama returned no usable message content.");
+
+    if (!response.ok) {
+      // Read the provider's diagnostic response for the server log. The API key
+      // is sent only in the request header and is never included in this error.
+      const responseBody = redactApiKey((await response.text()).slice(0, 4_000), this.geminiApiKey);
+      throw new GeminiApiError(response.status, responseBody);
+    }
+    const answer = extractGeminiResponse(await response.json());
+    if (!answer) throw new Error("Gemini returned no usable message content.");
     return answer;
   }
 
@@ -295,6 +334,7 @@ export class SofraAiService {
     const chunks = splitDiscordMessage(content);
     if (!chunks.length) throw new Error("The AI response could not be sent because it was empty.");
 
+    await message.channel.sendTyping().catch(() => undefined);
     for (const chunk of chunks) {
       await message.reply({ content: chunk, allowedMentions: { parse: [], repliedUser: false } });
     }
@@ -316,3 +356,4 @@ export class SofraAiService {
     }
   }
 }
+import { MessageFlags, PermissionFlagsBits } from "discord.js";
