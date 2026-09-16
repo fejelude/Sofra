@@ -11,8 +11,7 @@ const CONFIG_ENVIRONMENT_KEYS = [
   "UPSTASH_REDIS_REST_URL",
   "UPSTASH_REDIS_REST_TOKEN",
   "SOFRA_CONFIG_POLL_MS",
-  "GEMINI_API_KEY",
-  "GEMINI_MODEL",
+  "LLAMA_API_BASE_URL",
 ];
 const DEFAULT_STORE_PATH = fileURLToPath(
   new URL("../data/welcome-config.json", import.meta.url),
@@ -95,8 +94,7 @@ export function readRuntimeConfig() {
       ? resolve(process.cwd(), configuredLevelDatabasePath)
       : DEFAULT_LEVEL_DATABASE_PATH,
     ai: Object.freeze({
-      geminiApiKey: process.env.GEMINI_API_KEY?.trim() ?? "",
-      model: process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash",
+      baseUrl: process.env.LLAMA_API_BASE_URL?.trim() || "https://cambridge-employees-attach-camping.trycloudflare.com/v1",
     }),
     sharedConfig: Object.freeze({
       url: sharedConfigUrl,
