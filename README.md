@@ -79,7 +79,7 @@ message archive. Configuration happens through Discord slash commands.
 
 ### AI chat channel
 
-- Optional, channel-scoped AI chat powered by Google Gemini using Gemini 2.5 Flash by default
+- Optional, channel-scoped AI chat powered by Google Gemini using Gemini 3.6 Flash by default
 - Sofra keeps a small, in-memory, per-user recent conversation window for 30 minutes;
   it is never written to the database or shared between users
 - Bounded request timeouts, duplicate-request protection, safe error replies, and
@@ -387,7 +387,7 @@ levels.
 | `WELCOME_CONFIG_PATH` | No | Overrides the welcome JSON path |
 | `LEVEL_DATABASE_PATH` | No | Overrides the level SQLite path |
 | `GEMINI_API_KEY` | Yes, when AI is enabled | Google AI Studio API key; keep it only in deployment secrets or `.env`; choose the channel with `/ai channel` |
-| `GEMINI_MODEL` | No | Gemini model to use; defaults to `gemini-2.5-flash` |
+| `GEMINI_MODEL` | No | Gemini model to use; defaults to `gemini-3.6-flash` |
 
 No external database, migration command, port, web URL, or additional secret is
 required.
