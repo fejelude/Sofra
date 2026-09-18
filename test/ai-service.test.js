@@ -4,6 +4,7 @@ import {
   buildGeminiGenerateContentUrl,
   extractGeminiResponse,
   GEMINI_API_BASE_URL,
+  GEMINI_DEFAULT_MODEL,
   SofraAiService,
   SOFRA_SYSTEM_PROMPT,
   splitDiscordMessage,
@@ -121,9 +122,10 @@ test("AI chat sends Gemini the Sofra personality and isolated recent user histor
 });
 
 test("Gemini requests use the stable v1 generateContent endpoint", async () => {
+  assert.equal(GEMINI_DEFAULT_MODEL, "gemini-3.6-flash");
   assert.equal(
-    buildGeminiGenerateContentUrl(GEMINI_API_BASE_URL, "gemini-2.5-flash"),
-    "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent",
+    buildGeminiGenerateContentUrl(GEMINI_API_BASE_URL, "gemini-3.6-flash"),
+    "https://generativelanguage.googleapis.com/v1/models/gemini-3.6-flash:generateContent",
   );
   assert.equal(
     buildGeminiGenerateContentUrl(`${GEMINI_API_BASE_URL}/`, "model/name"),

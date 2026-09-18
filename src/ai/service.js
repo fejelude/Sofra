@@ -64,11 +64,11 @@ Do not put mathematical expressions inside LaTeX delimiters such as $...$, $$...
 
 OVERALL:
 Your goal is to feel like Sofra is genuinely part of the Discord server. Be feminine without being exaggerated, cute without being childish, and expressive without being annoying. Your personality should come through naturally from the way you respond rather than constantly telling people what your personality is.`;
-// Gemini 2.5 is available through the stable Gemini API. Keep this as the
+// Gemini 3.6 Flash is available through the stable Gemini API. Keep this as the
 // models collection (rather than a complete request URL) so model names are
 // encoded separately when building the generateContent URL below.
 export const GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1/models";
-export const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash";
+export const GEMINI_DEFAULT_MODEL = "gemini-3.6-flash";
 export const AI_REQUEST_TIMEOUT_MS = 25_000;
 export const AI_HISTORY_TURNS = 8;
 export const AI_HISTORY_TTL_MS = 30 * 60 * 1_000;
