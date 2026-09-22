@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { ApplicationCommandOptionType, PermissionFlagsBits } from "discord.js";
 import { ticketChannelCommand } from "../src/ticket/command.js";
 
-test("ticket-channel exposes panel, category, roles, and shared Staff Logs configuration", () => {
+test("/ticket exposes panel, category, roles, and shared Staff Logs configuration", () => {
   const command = ticketChannelCommand.toJSON();
-  assert.equal(command.name, "ticket-channel");
+  assert.equal(command.name, "ticket");
   assert.equal(command.dm_permission, false);
   assert.equal(BigInt(command.default_member_permissions), PermissionFlagsBits.ManageGuild);
   assert.deepEqual(command.options.map((option) => option.name), [
