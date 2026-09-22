@@ -4,19 +4,20 @@ Sofra is a lightweight Discord bot designed to run continuously on Wispbyte.
 It includes polished welcome, leveling, auto-role, moderation, information,
 announcement, poll, and safe meme features.
 
-Configure Sofra through Discord slash commands or the companion Portfolio
-dashboard. Shared Upstash configuration synchronizes the two deployments;
+Use Sofra's compact Discord command surface for everyday actions and the
+companion Portfolio dashboard for deeper server configuration. Shared Upstash
+configuration synchronizes the two deployments;
 member XP, warnings, and ticket records remain in local SQLite. See
 [PUBLIC_LAUNCH.md](PUBLIC_LAUNCH.md) for the audit, deployment order, limits,
 and release checklist. This is not a multi-host or million-user certification.
 
 ## Public-server improvements
 
-- `/help`, `/setup`, and `/health` provide private guidance and diagnostics.
+- `/sofra` provides private help, setup guidance, health checks, and a dashboard link.
 - Watching presence displays the guild total, including ShardingManager totals
   when available. Join/leave updates are coalesced over 15 seconds.
-- `/automod safety` adds opt-in traffic/mention spam protection and log-only
-  testing. Log-only actions never escalate or record strikes.
+- Advanced AutoMod configuration lives in the dashboard, keeping its large
+  settings surface out of Discord's slash-command picker.
 - Tickets and booster messages use neutral community copy, not studio rewards.
 - The personal name-trigger feature is disabled unless `SOFRA_PERSONAL_GUILD_ID`
   explicitly restricts it to one server.
@@ -27,7 +28,7 @@ and release checklist. This is not a multi-host or million-user certification.
 
 ### Welcome system
 
-- Admin-only `/welcome` configuration
+- Admin-only configuration through the companion dashboard
 - 64 polished welcome messages with blush, pink, lavender, and cream styling
 - Persistent per-server channel and enabled state
 - Permission and stale-channel diagnostics
@@ -51,7 +52,7 @@ and release checklist. This is not a multi-host or million-user certification.
 ### Auto-role system
 
 - Instantly gives one configured role to each new human member
-- Admin-only setup through `/autorole`
+- Admin-only setup through the companion dashboard
 - Validates Manage Roles, role hierarchy, managed roles, and deleted roles
 - Persistent per-server role and enabled state
 - Duplicate join protection and failure isolation from welcomes and levels
@@ -67,8 +68,9 @@ and release checklist. This is not a multi-host or million-user certification.
 
 ### Moderation and community tools
 
-- Purge, ban, kick, timeout mute/unmute, warning, unban, lockdown, unlock, and
-  slowmode commands with Discord permission and role-hierarchy checks
+- `/mod` consolidates warn, warning history, timeout, kick, ban, unban,
+  lockdown, unlock, and slowmode actions behind one entry point, while
+  `/purge` remains direct for fast cleanup
 - Private aesthetic warning DMs with persistent, moderator-only offense totals
 - Lockdowns that remember and restore the channel's exact previous typing state
 - Member and server information embeds
@@ -100,8 +102,8 @@ and release checklist. This is not a multi-host or million-user certification.
   it is never written to the database or shared between users
 - Bounded request timeouts, duplicate-request protection, safe error replies, and
   Discord-length-aware response splitting
-- Server administrators choose the channel from Discord with `/ai channel`; use
-  `/ai status` to view it or `/ai disable` to turn AI chat off for that server
+- Server administrators use the single `/ai` command with an action option to
+  view status, choose a channel, or disable AI chat
 
 ### Private moderation logs
 
@@ -196,158 +198,52 @@ requires ordinary outbound HTTPS access to the third-party
 
 ## Commands
 
-### Welcome administration
+Sofra deliberately keeps Discord's slash-command picker small. Advanced module
+configuration stays in the companion dashboard instead of being represented by
+dozens of Discord subcommands.
 
-- `/welcome channel channel:#channel` — choose and validate the welcome channel
-- `/welcome enable` — enable welcomes after validating the saved channel
-- `/welcome disable` — disable welcomes without deleting the saved channel
-- `/welcome test` — send a preview using the administrator who ran it
-- `/welcome status` — show channel, permissions, storage health, and validity
+### Core
 
-All `/welcome` commands require **Manage Server** or Administrator permission.
+- `/sofra [view]` — open Sofra's private control center. **Setup** and **Health**
+  remain permission-gated to server managers; the buttons also link to the dashboard.
+- `/level [member]` — show a rank card. The response includes interactive
+  **Leaderboard** and **Rewards** buttons instead of separate level subcommands.
+- `/info [view] [member]` — show server information or inspect a member.
+- `/meme` — fetch a validated SFW meme.
 
-### Public level commands
+### Staff
 
-- `/level rank [member]` — show your rank or another member's rank card
-- `/level leaderboard [page]` — show the server's paged XP leaderboard
-- `/level rewards` — show configured automatic role rewards
-
-### Level administration
-
-- `/level enable` — turn XP earning on
-- `/level disable` — pause XP earning while retaining all data
-- `/level channel channel:#channel` — set a dedicated level-up channel
-- `/level channel-reset` — send level-ups where the XP was earned
-- `/level settings [cooldown-seconds] [minimum-xp] [maximum-xp]` — tune XP
-- `/level role-add level:# role:@role` — add or update a cumulative reward
-- `/level role-remove role:@role` — remove a reward without removing it from members
-- `/level test` — preview a level-up without changing XP or roles
-- `/level status` — diagnose settings, channel permissions, database, and roles
-
-Administrative `/level` subcommands require **Manage Server** or Administrator
-permission. Public rank, leaderboard, and rewards commands remain available to
-normal members. Commands cannot be used in DMs.
-
-### Auto-role administration
-
-- `/autorole role role:@role` — choose and validate the role for new members
-- `/autorole enable` — enable assignment after validating the saved role
-- `/autorole disable` — disable assignment while keeping the saved role
-- `/autorole test` — test assignment using the administrator who runs it
-- `/autorole status` — diagnose storage, role existence, permission, and hierarchy
-
-All `/autorole` commands require **Manage Server** or Administrator permission.
-The feature starts disabled and ignores bots. If the configured role is deleted,
-Sofra clears it and disables auto-role safely.
-
-### Moderation
-
+- `/mod action:...` — one moderation entry point for warn, warning history,
+  timeout/remove-timeout, kick, ban, unban, lockdown, unlock, and slowmode.
+  Sofra checks the matching Discord permission and role hierarchy at runtime.
 - `/purge messages:1-100|all` — delete recent messages; `all` is capped at
-  1,000 per run
-- `/ban user reason delete-message-days` — ban a user and optionally delete up
-  to seven days of messages
-- `/kick member reason` — remove a member
-- `/mute member duration-minutes reason` — apply a Discord timeout for up to 28 days
-- `/unmute member reason` — end a timeout early
-- `/warn member reason` — record an offense and send an aesthetic private DM
-- `/warnings member` — privately review total offenses and recent warning details
-- `/unban user-id reason` — remove a ban using the exact Discord user ID
-- `/lockdown channel reason` — deny public channel and thread typing
-- `/unlock channel reason` — restore the pre-lockdown permission values
-- `/slowmode seconds channel reason` — set 0–21,600 seconds of slowmode
+  1,000 messages per run and Discord still cannot bulk-delete messages older than
+  14 days.
+- `/embed [channel]` — open the announcement embed modal.
+- `/poll ...` — create a Discord-native poll.
+- `/ticket ...` — configure/post the support ticket panel. This remains direct
+  because posting the live Discord panel is an in-server operation.
 
-Every response containing warning history is ephemeral. Moderation commands
-require their matching Discord permission at both command-registration time and
-runtime. Targeted actions also validate the moderator's and Sofra's role
-hierarchies.
+### Server administration
 
-Discord bulk deletion cannot remove messages older than 14 days. `/purge all`
-therefore deletes all recent messages it can find, up to 1,000 per command.
+- `/ai [action] [channel]` — view AI status, choose the AI chat channel, or
+  disable AI chat without exposing a subcommand tree.
+- Welcome, Auto Role, AutoMod, Boosters, Levels administration, Staff Logs, and
+  deeper Ticket settings are configured through the existing dashboard.
 
-### Automatic moderation administration
+The registered top-level command set is intentionally limited to:
 
-- `/automod enable|disable|status` — control or privately diagnose the master filter
-- `/automod test text:...` — privately scan sample text without enforcement or logging
-- `/automod settings` — configure Tier 3 behavior, links, invites, strikes, public
-  warning cooldown, repeat threshold, and timeout duration
-- `/automod role-add|role-remove role:... kind:...` — manage bypass, manager,
-  normal-link, and Discord-invite role permissions
-- `/automod channel channel:... mode:exempt|relaxed|default` — apply a channel or
-  category override without changing the server defaults
-- `/automod word-add`, `/automod word-remove`, and `/automod whitelist` — maintain
-  private server-specific rules and false-positive exceptions
+`/sofra` · `/level` · `/purge` · `/mod` · `/info` · `/embed` ·
+`/poll` · `/meme` · `/ai` · `/ticket`
 
-The server owner always has configuration access and bypasses filtering. Administrator
-and Manage Server users can configure the feature, as can explicitly configured manager
-roles. A configured bypass role skips message rules; link and invite roles only bypass
-their respective independent rule. Attachments, stickers, and uncaptioned media are not
-blocked. Tier 1 remains active in relaxed channels, while exempt channels skip automod.
-Configure `/modlog setup` to receive full incident records.
-
-### Booster administration
-
-- `/booster setup role:@Server Booster channel:#boosts` — save both destinations,
-  validate permissions and hierarchy, and enable the feature
-- `/booster enable` — resume role assignment and thank-you embeds
-- `/booster disable` — pause the feature while keeping its settings
-- `/booster test` — send a randomized preview without changing anyone's role
-- `/booster status` — diagnose storage, role hierarchy, and channel permissions
-
-All `/booster` commands require **Manage Server** or Administrator. The role must
-be a custom assignable role; Discord's built-in managed booster role cannot be
-assigned manually by bots. Sofra retrieves the GIF from the supplied Discord
-message reference at send time so expiring attachment URLs remain fresh. If the
-GIF cannot be accessed, Sofra safely falls back to her animated avatar.
-
-### Moderation-log administration
-
-- `/modlog setup` — create/configure `Moderation → #staff-logs`, keep it hidden
-  from `@everyone`, send a preview, and enable logging
-- `/modlog channel channel:#channel` — use an existing private text channel
-- `/modlog enable` — enable logs after validating the configured channel
-- `/modlog disable` — pause logs while retaining the saved channel
-- `/modlog test` — send a preview even while logging is disabled
-- `/modlog status` — diagnose channel access, audit-log access, storage, and
-  configuration validity
-
-All `/modlog` commands require **Manage Server** or Administrator. The automatic
-setup allows Sofra and server administrators into the private area; add explicit
-permission access for other staff roles that should read `#staff-logs`.
-
-### Ticket administration and controls
-
-- `/ticket-channel panel-channel:#tickets ticket-category:Tickets
-  staff-role:@Moderator [staff-role-2..5] [staff-logs:#staff-logs]` — configure
-  ticket access and post a new persistent panel
-- **Claim Ticket** — record which staff member is handling the ticket
-- **Close Ticket** — change the status to Closed and make the channel read-only
-  for its creator without deleting anything
-- **Reopen Ticket** — restore the creator's ability to reply, unless they already
-  have another open ticket of that type
-- **Delete Ticket** — show a separate confirmation before permanently deleting
-  the ticket channel
-
-`/ticket-channel` requires **Manage Server** or Administrator. The first staff
-role is required and up to four additional roles may be configured. The optional
-`staff-logs` option updates the same destination used by `/modlog`; when omitted,
-Sofra reuses the existing configured Staff Logs channel. Ticket setup enables
-that shared logging configuration.
-
-### Information and community
-
-- `/userinfo member` — show account creation, join date, IDs, avatar, and roles
-- `/serverinfo` — show member count, boosts, creation date, owner, channels, and roles
-- `/embed channel` — open a modal for title, description, hex color, footer, and image
-- `/poll question option-1 option-2 ... duration-hours` — create a native Discord poll
-- `/meme` — fetch a validated SFW meme
-
-`/userinfo`, `/serverinfo`, and `/meme` are public. Creating announcements and
-polls requires **Manage Messages**.
+At startup, Sofra reconciles Discord's registered commands to this exact list.
+Commands removed from the code are deleted from Discord, preventing stale legacy
+commands from continuing to appear in the slash picker.
 
 ## Level behavior and defaults
 
 The level system starts **disabled** so existing deployments do not begin
-tracking activity unexpectedly. Run `/level enable` once after deployment.
+tracking activity unexpectedly. Enable it from the dashboard once after deployment.
 
 By default, each member can earn **15–25 XP once every 60 seconds**. The
 cooldown is per member and per server and survives restarts. XP requirements
