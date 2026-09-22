@@ -13,14 +13,8 @@ import { fetchSafeMeme } from "./meme.js";
 
 const SOFRA_COLORS = Object.freeze([0xf4a7c2, 0xf8c8d8, 0xd8b4e8]);
 const EMBED_MODAL_PREFIX = "sofra_embed:";
-const PUBLIC_COMMANDS = new Set(["userinfo", "serverinfo", "meme"]);
-const COMMUNITY_COMMANDS = new Set([
-  "userinfo",
-  "serverinfo",
-  "embed",
-  "poll",
-  "meme",
-]);
+const PUBLIC_COMMANDS = new Set(["info", "meme"]);
+const COMMUNITY_COMMANDS = new Set(["info", "embed", "poll", "meme"]);
 const POLL_EMOJIS = Object.freeze(["🎀", "🌸", "✨", "☁️", "🩷"]);
 
 function discordTimestamp(milliseconds, style = "F") {
@@ -116,6 +110,15 @@ export class CommunityService {
       await this.replyWithFailure(interaction, command, PUBLIC_COMMANDS.has(command));
       return true;
     }
+  }
+
+  async info(interaction) {
+    const view = interaction.options.getString("view") ?? "server";
+    if (view === "member") {
+      await this.userinfo(interaction);
+      return;
+    }
+    await this.serverinfo(interaction);
   }
 
   async userinfo(interaction) {
