@@ -5,10 +5,10 @@ import {
   reconcileCommands,
 } from "../src/register-command.js";
 
-test("Sofra exposes only eight top-level Discord commands", () => {
+test("Sofra exposes only ten top-level Discord commands", () => {
   assert.deepEqual(
     commandsToRegister.map((command) => command.name),
-    ["sofra", "level", "purge", "mod", "info", "embed", "poll", "meme"],
+    ["sofra", "level", "purge", "mod", "info", "embed", "poll", "meme", "ai", "ticket"],
   );
 });
 
@@ -46,6 +46,6 @@ test("command reconciliation deletes stale Discord commands", async () => {
   assert.deepEqual(edited, ["sofra"]);
   assert.deepEqual(
     created.sort(),
-    ["embed", "info", "level", "meme", "mod", "poll", "purge"].sort(),
+    ["ai", "embed", "info", "level", "meme", "mod", "poll", "purge", "ticket"].sort(),
   );
 });
