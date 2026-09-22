@@ -240,12 +240,16 @@ export class SofraAiService {
         return true;
       }
 
-      const subcommand = interaction.options.getSubcommand(true);
-      if (subcommand === "channel") {
-        const channel = interaction.options.getChannel("channel", true);
+      const action = interaction.options.getString("action") ?? "status";
+      if (action === "channel") {
+        const channel = interaction.options.getChannel("channel");
+        if (!channel) {
+          await interaction.editReply("Choose a **channel** when using the Set channel action.");
+          return true;
+        }
         this.store.setAiChannel(interaction.guildId, channel.id);
         await interaction.editReply(`✨ Sofra will now answer AI chat in ${channel}.`);
-      } else if (subcommand === "disable") {
+      } else if (action === "disable") {
         this.store.clearAiChannel(interaction.guildId);
         await interaction.editReply("☁️ AI chat is now disabled in this server.");
       } else {
