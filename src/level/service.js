@@ -82,8 +82,10 @@ export class LevelService {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const view = interaction.customId.slice(LEVEL_BUTTON_PREFIX.length);
 
-      if (view === "leaderboard") {
-        await this.leaderboard(interaction);
+      if (view.startsWith("leaderboard")) {
+        const [, rawPage] = view.split(":");
+        const page = Math.max(1, Number.parseInt(rawPage ?? "1", 10) || 1);
+        await this.leaderboard(interaction, page);
       } else if (view === "rewards") {
         await this.rewards(interaction);
       } else {
@@ -116,7 +118,7 @@ export class LevelService {
           .setStyle(active === "rank" ? ButtonStyle.Primary : ButtonStyle.Secondary)
           .setDisabled(active === "rank"),
         new ButtonBuilder()
-          .setCustomId(`${LEVEL_BUTTON_PREFIX}leaderboard`)
+          .setCustomId(`${LEVEL_BUTTON_PREFIX}leaderboard:1`)
           .setLabel("Leaderboard")
           .setStyle(active === "leaderboard" ? ButtonStyle.Primary : ButtonStyle.Secondary)
           .setDisabled(active === "leaderboard"),
@@ -125,6 +127,31 @@ export class LevelService {
           .setLabel("Rewards")
           .setStyle(active === "rewards" ? ButtonStyle.Primary : ButtonStyle.Secondary)
           .setDisabled(active === "rewards"),
+      ),
+    ];
+  }
+
+  leaderboardNavigation(page, totalPages) {
+    return [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`${LEVEL_BUTTON_PREFIX}rank`)
+          .setLabel("My Rank")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`${LEVEL_BUTTON_PREFIX}rewards`)
+          .setLabel("Rewards")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`${LEVEL_BUTTON_PREFIX}leaderboard:${Math.max(1, page - 1)}`)
+          .setLabel("Previous")
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(page <= 1),
+        new ButtonBuilder()
+          .setCustomId(`${LEVEL_BUTTON_PREFIX}leaderboard:${Math.min(totalPages, page + 1)}`)
+          .setLabel("Next")
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(page >= totalPages),
       ),
     ];
   }
@@ -149,8 +176,7 @@ export class LevelService {
     });
   }
 
-  async leaderboard(interaction) {
-    const requestedPage = 1;
+  async leaderboard(interaction, requestedPage = 1) {
     let page = requestedPage;
     let leaderboard = this.store.getLeaderboard(interaction.guild.id, {
       limit: LEADERBOARD_PAGE_SIZE,
@@ -179,7 +205,7 @@ export class LevelService {
 
     await interaction.editReply({
       embeds: [embed],
-      components: this.levelNavigation("leaderboard"),
+      components: this.leaderboardNavigation(page, totalPages),
       allowedMentions: { parse: [] },
     });
   }
