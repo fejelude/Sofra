@@ -27,7 +27,11 @@ jobs:
         run: npm ci
 
       - name: Syntax check
-        run: npm run check
+        run: |
+          npm run check
+          node --check src/onboarding.js
+          node --check src/presence.js
+          node --check src/automod/traffic.js
 
       - name: Test
         run: npm test

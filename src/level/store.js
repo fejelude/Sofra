@@ -259,6 +259,13 @@ export class LevelStore {
           role_id TEXT NOT NULL,
           PRIMARY KEY (guild_id, role_id)
         );
+        CREATE TABLE IF NOT EXISTS ticket_options (
+          guild_id TEXT PRIMARY KEY,
+          enabled INTEGER NOT NULL,
+          bug INTEGER NOT NULL,
+          report INTEGER NOT NULL,
+          other INTEGER NOT NULL
+        );
 
         CREATE TABLE IF NOT EXISTS tickets (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -297,6 +304,13 @@ export class LevelStore {
           guild_id TEXT NOT NULL, role_id TEXT NOT NULL,
           kind TEXT NOT NULL CHECK (kind IN ('bypass','manager','link','invite')),
           PRIMARY KEY (guild_id, role_id, kind)
+        );
+        CREATE TABLE IF NOT EXISTS automod_safety (
+          guild_id TEXT PRIMARY KEY,
+          dry_run INTEGER NOT NULL DEFAULT 0,
+          spam_enabled INTEGER NOT NULL DEFAULT 0,
+          message_limit INTEGER NOT NULL DEFAULT 7,
+          mention_limit INTEGER NOT NULL DEFAULT 6
         );
         CREATE TABLE IF NOT EXISTS automod_channels (
           guild_id TEXT NOT NULL, channel_id TEXT NOT NULL,
@@ -906,6 +920,7 @@ export class LevelStore {
     validateSnowflake(guildId, "Guild ID");
     this.assertReady();
     const row = this.database.prepare("SELECT * FROM automod_config WHERE guild_id = ?").get(guildId);
+    const safety = this.database.prepare("SELECT * FROM automod_safety WHERE guild_id = ?").get(guildId);
     const roles = this.database.prepare("SELECT role_id, kind FROM automod_roles WHERE guild_id = ?").all(guildId);
     const channels = this.database.prepare("SELECT channel_id, mode FROM automod_channels WHERE guild_id = ?").all(guildId);
     const legacyWords = this.database.prepare("SELECT word, tier FROM automod_words WHERE guild_id = ?").all(guildId);
@@ -913,6 +928,8 @@ export class LevelStore {
     const categoryRows = this.database.prepare("SELECT category, enabled, action FROM automod_category_settings WHERE guild_id = ?").all(guildId);
     return Object.freeze({
       guildId, enabled: row?.enabled === 1, mildAction: row?.mild_action ?? "allow",
+      dryRun: safety?.dry_run === 1, spamEnabled: safety?.spam_enabled === 1,
+      messageLimit: safety?.message_limit ?? 7, mentionLimit: safety?.mention_limit ?? 6,
       linksEnabled: row?.links_enabled === 1, invitesEnabled: row ? row.invites_enabled === 1 : true,
       warningCooldownSeconds: row?.warning_cooldown_seconds ?? 30,
       escalationThreshold: row?.escalation_threshold ?? 4, timeoutMinutes: row?.timeout_minutes ?? 10,
@@ -932,6 +949,12 @@ export class LevelStore {
     validateInteger(next.warningCooldownSeconds, 5, 600, "Warning cooldown");
     validateInteger(next.escalationThreshold, 2, 20, "Escalation threshold");
     validateInteger(next.timeoutMinutes, 0, 1440, "Timeout minutes");
+    validateInteger(next.messageLimit, 3, 20, "Messages per ten seconds");
+    validateInteger(next.mentionLimit, 3, 20, "Mentions per message");
+    this.database.prepare(`INSERT INTO automod_safety VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(guild_id) DO UPDATE SET dry_run=excluded.dry_run, spam_enabled=excluded.spam_enabled,
+      message_limit=excluded.message_limit, mention_limit=excluded.mention_limit`).run(
+      guildId, next.dryRun ? 1 : 0, next.spamEnabled ? 1 : 0, next.messageLimit, next.mentionLimit);
     this.database.prepare(`INSERT INTO automod_config VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(guild_id) DO UPDATE SET enabled=excluded.enabled, mild_action=excluded.mild_action,
       links_enabled=excluded.links_enabled, invites_enabled=excluded.invites_enabled,
@@ -1245,7 +1268,16 @@ export class LevelStore {
     const roles = this.statements.listTicketStaffRoles
       .all(guildId)
       .map((row) => row.role_id);
-    return mapTicketConfig(this.statements.getTicketConfig.get(guildId), guildId, roles);
+    const config = mapTicketConfig(this.statements.getTicketConfig.get(guildId), guildId, roles);
+    const options = this.database.prepare("SELECT * FROM ticket_options WHERE guild_id = ?").get(guildId);
+    return options ? Object.freeze({ ...config, enabled: options.enabled === 1, types: Object.freeze({ bug: options.bug === 1, report: options.report === 1, other: options.other === 1 }) }) : config;
+  }
+
+  setTicketOptions(guildId, { enabled, types = {} }) {
+    validateSnowflake(guildId, "Guild ID"); this.assertReady();
+    this.database.prepare(`INSERT INTO ticket_options VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(guild_id) DO UPDATE SET enabled=excluded.enabled, bug=excluded.bug, report=excluded.report, other=excluded.other`).run(
+      guildId, enabled === false ? 0 : 1, types.bug === false ? 0 : 1, types.report === false ? 0 : 1, types.other === false ? 0 : 1);
   }
 
   setTicketConfig({ guildId, panelChannelId, panelMessageId, categoryId, staffRoleIds }) {

@@ -2,6 +2,7 @@ import { EmbedBuilder, MessageFlags, PermissionFlagsBits, escapeMarkdown } from 
 import { detectContent, detectLinks } from "./detector.js";
 import { CATEGORIES } from "./words.js";
 import { defaultCategorySettings } from "./detector.js";
+import { TrafficGuard, fingerprint } from "./traffic.js";
 
 const WARNINGS = Object.freeze({
   1: ["be respectful — hateful language is not allowed here.", "that language is not welcome here. Keep this community safe."],
@@ -12,7 +13,7 @@ const WARNINGS = Object.freeze({
 const roleIds = (member) => new Set(member?.roles?.cache?.keys?.() ?? []);
 
 export class AutomodService {
-  constructor({ client, store, logger, modLogService, random = Math.random, now = Date.now }) { Object.assign(this, { client, store, logger, modLogService, random, now }); this.warningTimes = new Map(); this.violations = new Map(); this.logTimes = new Map(); }
+  constructor({ client, store, logger, modLogService, random = Math.random, now = Date.now }) { Object.assign(this, { client, store, logger, modLogService, random, now }); this.warningTimes = new Map(); this.violations = new Map(); this.logTimes = new Map(); this.processed = new Map(); this.traffic = new TrafficGuard({ now }); }
   config(guildId) { return this.store.getAutomodConfig(guildId); }
   hasRole(member, config, kind) { const held = roleIds(member); return config.roles.some((entry) => entry.kind === kind && held.has(entry.roleId)); }
   canManage(interaction, config) { return interaction.guild.ownerId === interaction.user.id || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) || interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) || this.hasRole(interaction.member, config, "manager"); }
@@ -28,6 +29,12 @@ export class AutomodService {
 
   async runCommand(interaction, config) {
     const sub = interaction.options.getSubcommand(); const id = interaction.guildId;
+    if (sub === "safety") {
+      const options = { dryRun: interaction.options.getBoolean("dry-run"), spamEnabled: interaction.options.getBoolean("anti-spam"), messageLimit: interaction.options.getInteger("message-limit"), mentionLimit: interaction.options.getInteger("mention-limit") };
+      const next = this.store.setAutomodConfig(id, Object.fromEntries(Object.entries(options).filter(([, value]) => value !== null)));
+      await interaction.editReply(`Safety settings saved. Mode: **${next.dryRun ? "log only" : "enforcement"}**. Anti-spam: **${next.spamEnabled ? "enabled" : "disabled"}**. The master AutoMod toggle must also be enabled.`);
+      return;
+    }
     if (sub === "enable" || sub === "disable") { this.store.setAutomodConfig(id, { enabled: sub === "enable" }); await interaction.editReply(`Automod is now **${sub === "enable" ? "enabled" : "paused"}**. Saved settings were kept.`); return; }
     const categorySettings = { ...defaultCategorySettings(), ...config.categories };
     if (sub === "test") { const text = interaction.options.getString("text", true); const result = detectContent(text, config.words, { categories: categorySettings }); const links = detectLinks(text); const category = result.matched ? CATEGORIES[result.category] : null; await interaction.editReply(result.matched ? `**Private filter result**\nCategory: **${category?.label ?? result.category}**\nSeverity: **${result.severity}**\nConfidence: **${Math.round(result.confidence * 100)}%**\nRule: \`${result.id}\`\nAction if sent: **${result.actionOverride ?? categorySettings[result.category]?.action}**\nNo punishment or log was created.` : `No content rule matched.${links.invite ? " A Discord invite was detected." : links.link ? " A normal link was detected." : ""}`); return; }
@@ -46,20 +53,39 @@ export class AutomodService {
     try {
       if (!message.guild || message.author?.bot || message.webhookId || !this.store.getHealth().ok) return false;
       const config = this.config(message.guild.id); if (!config.enabled) return false;
-      const channelRule = config.channels.find((item) => item.channelId === message.channelId || item.channelId === message.channel?.parentId); if (channelRule?.mode === "exempt") return false;
+      const channelRule = config.channels.find((item) => item.channelId === message.channelId) ?? config.channels.find((item) => item.channelId === message.channel?.parentId); if (channelRule?.mode === "exempt") return false;
       const owner = message.author.id === message.guild.ownerId; if (owner || this.hasRole(message.member, config, "bypass")) return false;
+      for (const map of [this.warningTimes, this.violations, this.logTimes, this.processed]) {
+        while (map.size >= 10_000) map.delete(map.keys().next().value);
+      }
+      const eventKey = `${message.guild.id}:${message.id}:${fingerprint(message)}`;
+      const seen = this.processed.get(eventKey);
+      if (seen && this.now() - seen.time < 300_000) return seen.blocked;
+      const traffic = this.traffic.inspect(message, config);
       const text = [message.content, ...(message.embeds ?? []).flatMap((embed) => [embed.title, embed.description, embed.footer?.text, ...(embed.fields ?? []).flatMap((field) => [field.name, field.value])])].filter(Boolean).join("\n");
       const categories = { ...defaultCategorySettings(), ...config.categories }; const result = detectContent(text, config.words, { categories, mentionCount: message.mentions?.users?.size ?? 0 }); const links = detectLinks(message.content);
       let kind = null; let tier = result.tier;
-      if (links.invite && config.invitesEnabled && !this.hasRole(message.member, config, "invite")) { kind = "invite"; tier = 2; }
+      if (traffic) { kind = traffic; tier = 2; }
+      else if (links.invite && config.invitesEnabled && !this.hasRole(message.member, config, "invite")) { kind = "invite"; tier = 2; }
       else if (links.link && config.linksEnabled && !links.invite && !this.hasRole(message.member, config, "link")) { kind = "link"; tier = 3; }
       else if (result.matched) kind = "content"; else return false;
       const categoryAction = kind === "content" ? (result.actionOverride ?? categories[result.category]?.action ?? "delete_warn") : null;
       if (categoryAction === "ignore") return false;
-      if (tier === 3 && (config.mildAction === "allow" || channelRule?.mode === "relaxed") && kind === "content") return false;
+      if (!config.dryRun && categoryAction !== "log" && tier === 3 && (config.mildAction === "allow" || channelRule?.mode === "relaxed") && kind === "content") return false;
+      this.processed.set(eventKey, { time: this.now(), blocked: !config.dryRun && categoryAction !== "log" });
+      if (config.dryRun || categoryAction === "log") {
+        const key = `${message.guild.id}:${message.author.id}`;
+        const now = this.now();
+        const recent = (this.logTimes.get(key) ?? []).filter((time) => now - time < 60_000);
+        if (recent.length < 5) {
+          this.logTimes.set(key, [...recent, now]);
+          await this.modLogService?.logAction(message.guild, { action: "automod", moderator: this.client.user, target: message.author, channel: message.channel, reason: `Log only: ${kind === "content" ? result.category : kind}`, details: `Message ID: ${message.id}\nNo warning, deletion, strike, or punishment applied.`, source: "Sofra automod" });
+        }
+        return false;
+      }
       const shouldDelete = kind !== "content" || categoryAction?.startsWith("delete") || (tier === 3 && config.mildAction === "delete");
       if (shouldDelete && message.deletable) await message.delete();
-      const key = `${message.guild.id}:${message.author.id}`; const now = this.now(); const recent = (this.violations.get(key) ?? []).filter((time) => now - time < 300_000); recent.push(now); this.violations.set(key, recent);
+      const key = `${message.guild.id}:${message.author.id}`; const now = this.now(); const recent = (this.violations.get(key) ?? []).filter((time) => now - time < 300_000).slice(-20); recent.push(now); this.violations.set(key, recent);
       let escalated = false; if ((categoryAction?.includes("timeout") || recent.length === config.escalationThreshold) && config.timeoutMinutes > 0 && message.member?.moderatable) { await message.member.timeout(config.timeoutMinutes * 60_000, "Sofra automod violation"); escalated = true; }
       if (categoryAction === "delete_kick" && message.member?.kickable) await message.member.kick("Sofra automod violation");
       if (categoryAction === "delete_ban" && message.member?.bannable) await message.member.ban({ reason: "Sofra automod violation", deleteMessageSeconds: 0 });

@@ -8,13 +8,6 @@ import { fetchConfiguredRole, inspectAutoRole } from "../autorole/role.js";
 import { chooseBoosterThankYou } from "./messages.js";
 
 const SOFRA_PINK = 0xf4a7c2;
-const BOOST_IMAGE_URL =
-  "https://cdn.discordapp.com/attachments/1488922538368307391/1542523644209659925/1E279775-7696-4C35-B9D8-05DCA0FAC19A.png";
-const NITRO_ICON_REFERENCE = Object.freeze({
-  guildId: "1372454538283323452",
-  channelId: "1488922538368307391",
-  messageId: "1542523819829231716",
-});
 const SEND_PERMISSIONS = Object.freeze([
   PermissionFlagsBits.ViewChannel,
   PermissionFlagsBits.SendMessages,
@@ -44,10 +37,9 @@ function validateChannel(guild, channel) {
 }
 
 export function buildBoosterThankYouEmbeds({ member, message, iconURL = null, timestamp = Date.now() }) {
-  const banner = new EmbedBuilder().setColor(SOFRA_PINK).setImage(BOOST_IMAGE_URL);
   const thanks = new EmbedBuilder()
     .setColor(SOFRA_PINK)
-    .setAuthor({ name: "♡ Thanks for supporting itsmefeje studios!" })
+    .setAuthor({ name: `♡ Thanks for supporting ${member.guild?.name ?? "this community"}!`.slice(0, 256) })
     .setThumbnail(iconURL)
     .setDescription(`## Thank you for boosting, ${member}! 🎀\n\n${message}`)
     .addFields({
@@ -56,7 +48,7 @@ export function buildBoosterThankYouEmbeds({ member, message, iconURL = null, ti
     })
     .setFooter({ text: "Sofra ♡ Booster Celebration" })
     .setTimestamp(timestamp);
-  return [banner, thanks];
+  return [thanks];
 }
 
 export class BoosterService {
@@ -213,17 +205,7 @@ export class BoosterService {
   }
 
   async resolveNitroIcon(guild) {
-    if (guild.id !== NITRO_ICON_REFERENCE.guildId) return this.client.user.displayAvatarURL({ extension: "gif", size: 128 });
-    try {
-      const channel = await this.resolveChannel(guild, NITRO_ICON_REFERENCE.channelId);
-      const message = await channel?.messages?.fetch(NITRO_ICON_REFERENCE.messageId);
-      const attachment = message?.attachments?.find((item) => item.contentType?.startsWith("image/")) ?? message?.attachments?.first?.();
-      const embeddedImage = message?.embeds?.find((embed) => embed.image?.url || embed.thumbnail?.url);
-      return attachment?.url ?? embeddedImage?.image?.url ?? embeddedImage?.thumbnail?.url ?? this.client.user.displayAvatarURL({ extension: "gif", size: 128 });
-    } catch (error) {
-      this.logger.warn("BOOSTER_NITRO_ICON_UNAVAILABLE", "The referenced Nitro GIF could not be loaded; Sofra's avatar was used instead.", { guildId: guild.id, error: error?.message });
-      return this.client.user.displayAvatarURL({ extension: "gif", size: 128 });
-    }
+    return guild.iconURL?.({ size: 128 }) ?? this.client.user.displayAvatarURL({ size: 128 });
   }
 
   async inspectConfig(guild) {

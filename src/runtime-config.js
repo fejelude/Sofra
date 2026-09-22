@@ -13,6 +13,8 @@ const CONFIG_ENVIRONMENT_KEYS = [
   "SOFRA_CONFIG_POLL_MS",
   "GEMINI_API_KEY",
   "GEMINI_MODEL",
+  "SOFRA_WEBSITE_URL",
+  "SOFRA_PERSONAL_GUILD_ID",
 ];
 const DEFAULT_STORE_PATH = fileURLToPath(
   new URL("../data/welcome-config.json", import.meta.url),
@@ -89,6 +91,8 @@ export function readRuntimeConfig() {
 
   return Object.freeze({
     token,
+    websiteUrl: publicWebsiteUrl(),
+    personalGuildId: optionalSnowflake("SOFRA_PERSONAL_GUILD_ID"),
     guildId: optionalSnowflake("DISCORD_GUILD_ID"),
     storePath: configuredPath ? resolve(process.cwd(), configuredPath) : DEFAULT_STORE_PATH,
     levelDatabasePath: configuredLevelDatabasePath
@@ -104,4 +108,12 @@ export function readRuntimeConfig() {
       pollMs: sharedConfigPollMs(),
     }),
   });
+}
+
+function publicWebsiteUrl() {
+  const raw = process.env.SOFRA_WEBSITE_URL?.trim();
+  if (!raw) return null;
+  const url = new URL(raw);
+  if (url.protocol !== "https:" || url.username || url.password) throw new Error("SOFRA_WEBSITE_URL must be a public HTTPS URL.");
+  return url.origin;
 }

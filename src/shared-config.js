@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 const SECTION_NAMES = Object.freeze([
   "welcome",
   "levels",
@@ -86,6 +88,9 @@ export class SharedConfigSync {
     this.dirty = new Set();
     this.remoteCache = new Map();
     this.stopped = false;
+    this.queues = new Map();
+    this.versions = new Map();
+    this.polling = false;
   }
 
   wrapLevelStore() {
@@ -170,9 +175,7 @@ export class SharedConfigSync {
       pollMs: this.pollMs,
     });
 
-    await Promise.allSettled(
-      [...client.guilds.cache.keys()].map((guildId) => this.syncGuild(guildId)),
-    );
+    await this.syncAllGuilds();
 
     if (this.stopped) return;
     this.timer = setInterval(() => {
@@ -195,16 +198,35 @@ export class SharedConfigSync {
   }
 
   async syncAllGuilds() {
-    if (!this.enabled || !this.client || this.stopped) return;
-    await Promise.allSettled(
-      [...this.client.guilds.cache.keys()].map((guildId) => this.syncGuild(guildId)),
-    );
+    if (!this.enabled || !this.client || this.stopped || this.polling) return;
+    this.polling = true;
+    const guilds = [...this.client.guilds.cache.keys()];
+    try {
+      // Bound outbound concurrency instead of launching one request per guild.
+      await Promise.all(Array.from({ length: Math.min(4, guilds.length) }, async () => {
+        while (guilds.length && !this.stopped) await this.syncGuild(guilds.shift());
+      }));
+    } finally { this.polling = false; }
   }
 
   async syncGuild(guildId) {
     if (!this.enabled || this.stopped || this.syncing.has(guildId)) return;
     this.syncing.add(guildId);
+    try { await this.enqueue(guildId, () => this.refreshGuild(guildId)); }
+    finally { this.syncing.delete(guildId); }
+  }
 
+  enqueue(guildId, task) {
+    const previous = this.queues.get(guildId) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(task);
+    this.queues.set(guildId, next);
+    void next.finally(() => {
+      if (this.queues.get(guildId) === next) this.queues.delete(guildId);
+    }).catch(() => undefined);
+    return next;
+  }
+
+  async refreshGuild(guildId) {
     try {
       const remoteDocument = await this.readRemoteDocument(guildId);
 
@@ -242,14 +264,19 @@ export class SharedConfigSync {
         await this.applyRemoteSection(guildId, section, remote);
         this.remoteCache.set(key, freezeCopy(remote));
       }
+      const applied = Object.fromEntries(SECTION_NAMES.map((section) => {
+        const value = this.remoteCache.get(sectionKey(guildId, section));
+        return [section, value ? createHash("sha256").update(JSON.stringify(value)).digest("hex") : null];
+      }));
+      if (!this.client?.isReady || this.client.isReady()) {
+        await this.command(["SET", `sofra:guild:${guildId}:runtime`, JSON.stringify({ lastSyncedAt: Date.now(), applied }), "EX", "180"]);
+      }
     } catch (error) {
       this.logger.warn(
         "SHARED_CONFIG_SYNC_FAILED",
         "Sofra could not refresh dashboard settings; the last known local configuration remains active.",
         { guildId, message: error.message },
       );
-    } finally {
-      this.syncing.delete(guildId);
     }
   }
 
@@ -257,8 +284,9 @@ export class SharedConfigSync {
     if (!this.enabled) return;
     const key = sectionKey(guildId, section);
     this.dirty.add(key);
+    this.versions.set(key, (this.versions.get(key) ?? 0) + 1);
     try {
-      await this.pushSection(guildId, section);
+      await this.enqueue(guildId, () => this.pushSection(guildId, section));
     } catch (error) {
       this.logger.warn(
         "SHARED_CONFIG_PUSH_FAILED",
@@ -270,12 +298,14 @@ export class SharedConfigSync {
 
   async seedSection(guildId, section) {
     const local = this.snapshotSection(guildId, section);
-    await this.writeRemoteSection(guildId, section, local);
-    this.remoteCache.set(sectionKey(guildId, section), freezeCopy(local));
+    // A dashboard save between HGETALL and seeding must not be overwritten.
+    const inserted = await this.command(["HSETNX", `sofra:guild:${guildId}:config`, section, JSON.stringify(local)]);
+    if (inserted) this.remoteCache.set(sectionKey(guildId, section), freezeCopy(local));
   }
 
   async pushSection(guildId, section) {
     const key = sectionKey(guildId, section);
+    const version = this.versions.get(key);
     const local = this.snapshotSection(guildId, section);
     const remote = this.remoteCache.get(key);
     const merged = section === "tickets"
@@ -293,7 +323,7 @@ export class SharedConfigSync {
 
     await this.writeRemoteSection(guildId, section, merged);
     this.remoteCache.set(key, freezeCopy(merged));
-    this.dirty.delete(key);
+    if (this.versions.get(key) === version) this.dirty.delete(key);
   }
 
   snapshotSection(guildId, section) {
@@ -401,6 +431,10 @@ export class SharedConfigSync {
   applyAutomod(guildId, remote) {
     this.levelStore.setAutomodConfig(guildId, {
       enabled: remote.enabled === true,
+      dryRun: remote.dryRun === true,
+      spamEnabled: remote.spamEnabled === true,
+      messageLimit: safeInteger(remote.messageLimit, 7),
+      mentionLimit: safeInteger(remote.mentionLimit, 6),
       mildAction: remote.mildAction ?? "allow",
       linksEnabled: remote.linksEnabled === true,
       invitesEnabled: remote.invitesEnabled !== false,
@@ -513,6 +547,8 @@ export class SharedConfigSync {
   }
 
   applyTickets(guildId, remote) {
+    // Keep disabled states across restarts even when Redis is unavailable.
+    this.levelStore.setTicketOptions(guildId, remote);
     if (
       remote.panelChannelId &&
       remote.panelMessageId &&

@@ -16,6 +16,8 @@ import { SofhiaEasterEggService } from "./sofhia/service.js";
 import { TicketService } from "./ticket/service.js";
 import { WelcomeService } from "./welcome/service.js";
 import { JsonWelcomeConfigStore } from "./welcome/store.js";
+import { PresenceService } from "./presence.js";
+import { OnboardingService } from "./onboarding.js";
 
 const runtime = readRuntimeConfig();
 const client = new Client({
@@ -43,6 +45,8 @@ const sharedConfig = new SharedConfigSync({
 });
 const welcomeStore = sharedConfig.wrapWelcomeStore();
 const levelStore = sharedConfig.wrapLevelStore();
+const presence = new PresenceService({ client, logger });
+const onboarding = new OnboardingService({ client, store: levelStore, sharedConfig, logger, websiteUrl: runtime.websiteUrl });
 const welcomeService = new WelcomeService({ client, store: welcomeStore, logger });
 const levelService = new LevelService({ client, store: levelStore, logger });
 const autoRoleService = new AutoRoleService({
@@ -90,6 +94,7 @@ process.on("uncaughtException", (error) => {
     error,
   );
   sharedConfig.stop();
+  presence.stop();
   localLevelStore.close();
   client.destroy();
   process.exit(1);
@@ -111,6 +116,7 @@ process.once("SIGINT", () => void shutdown("SIGINT"));
 process.once("SIGTERM", () => void shutdown("SIGTERM"));
 
 client.once(Events.ClientReady, (readyClient) => {
+  presence.start();
   logger.info("BOT_READY", `Logged in as ${readyClient.user.tag}.`, {
     guildCount: readyClient.guilds.cache.size,
   });
@@ -146,6 +152,7 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.InteractionCreate, (interaction) => {
   void (async () => {
+    if (await onboarding.handleInteraction(interaction)) return;
     if (await aiService.handleInteraction(interaction)) {
       return;
     }
@@ -174,7 +181,14 @@ client.on(Events.InteractionCreate, (interaction) => {
       return;
     }
     await communityService.handleInteraction(interaction);
-  })();
+  })().catch(async (error) => {
+    logger.error("INTERACTION_FAILED", "An interaction failed safely.", error, { guildId: interaction.guildId });
+    const message = { content: "Sofra couldn't complete that request. Please try again or ask a server manager to run /health.", allowedMentions: { parse: [] } };
+    try {
+      if (interaction.deferred || interaction.replied) await interaction.editReply(message);
+      else if (interaction.isRepliable()) await interaction.reply({ ...message, flags: 64 });
+    } catch { /* Interaction may already have expired. */ }
+  });
 });
 
 client.on(Events.GuildMemberAdd, (member) => {
@@ -193,7 +207,7 @@ client.on(Events.MessageCreate, (message) => {
 
     void levelService.handleMessage(message);
     if (await aiService.handleMessage(message)) return;
-    void sofhiaEasterEggService.handleMessage(message);
+    if (runtime.personalGuildId && message.guildId === runtime.personalGuildId) void sofhiaEasterEggService.handleMessage(message);
   })().catch((error) => logger.error("MESSAGE_CREATE_FAILED", "A message event could not be handled safely.", error, { messageId: message.id }));
 });
 
@@ -204,7 +218,10 @@ client.on(Events.MessageUpdate, (_oldMessage, newMessage) => {
 
 client.on(Events.GuildCreate, (guild) => {
   void sharedConfig.syncGuild(guild.id);
+  presence.schedule();
 });
+
+client.on(Events.GuildDelete, () => presence.schedule());
 
 client.on(Events.GuildRoleDelete, (role) => {
   levelService.handleRoleDelete(role);

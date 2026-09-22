@@ -9,8 +9,6 @@ import {
 } from "discord.js";
 
 const SOFRA_PINK = 0xf4a7c2;
-const PANEL_BANNER =
-  "https://cdn.discordapp.com/attachments/1489489015269883954/1542155954894807060/file_00000000c470821189498cb6c7c22668.png?ex=6a903427&is=6a8ee2a7&hm=b81ddd90b880a344e24f9a1ef98df817055cd9876bb28d364de8d734647a6bc3&";
 const TYPES = Object.freeze({
   bug: {
     name: "Bug Report",
@@ -21,12 +19,12 @@ const TYPES = Object.freeze({
       "Please provide:\n• A clear description of the bug\n• Steps to reproduce it\n• Screenshots or video, if available\n• What you expected to happen\n• What actually happened",
   },
   report: {
-    name: "Player Report",
+    name: "Member Report",
     prefix: "report",
     emoji: "⚒️",
     style: ButtonStyle.Danger,
     prompt:
-      "Please provide:\n• The player's username and User ID\n• What happened\n• Screenshots, video, or other evidence\n• The approximate time of the incident",
+      "Please provide:\n• The member's username and User ID\n• What happened\n• Screenshots, video, or other evidence\n• The approximate time of the incident",
   },
   other: {
     name: "Other",
@@ -55,20 +53,19 @@ export function buildTicketPanel(config = {}) {
     bug: {
       name: "🪲 Bug Reports",
       value:
-        "Report bugs, glitches, broken systems, exploits, or other game issues. Thorough, valid reports may be eligible for approximately **1,000–100,000 Robux**, depending on severity and importance. Critical bugs and exploits receive higher consideration; rewards are not guaranteed.",
+        "Report a bug or broken feature. Include steps to reproduce it, what you expected, and any relevant screenshots. Never share passwords or tokens.",
     },
     report: {
-      name: "⚒️ Player Reports",
+      name: "⚒️ Member Reports",
       value:
-        "Report exploiting, bug abuse, scams, harassment, rule-breaking, or other harmful player behavior.",
+        "Report harassment, scams, or rule-breaking privately to this server's staff. Include message links and relevant evidence.",
     },
     other: {
       name: "💬 Others",
       value:
-        "Ask private questions or get help with account/game issues, general support, concerns, or anything that does not fit above.",
+        "Ask this server's staff a question or get help with anything that does not fit the other categories.",
     },
   };
-  const banner = new EmbedBuilder().setColor(SOFRA_PINK).setImage(PANEL_BANNER);
   const panel = new EmbedBuilder()
     .setColor(SOFRA_PINK)
     .setAuthor({ name: "♡ Sofra Support Center" })
@@ -92,7 +89,7 @@ export function buildTicketPanel(config = {}) {
         ),
       ]
     : [];
-  return { embeds: [banner, panel], components };
+  return { embeds: [panel], components, allowedMentions: { parse: [] } };
 }
 
 export function buildTicketInformation(ticket) {
