@@ -4,8 +4,24 @@ Sofra is a lightweight Discord bot designed to run continuously on Wispbyte.
 It includes polished welcome, leveling, auto-role, moderation, information,
 announcement, poll, and safe meme features.
 
-There is no dashboard, web server, image generation, avatar downloading, or
-message archive. Configuration happens through Discord slash commands.
+Configure Sofra through Discord slash commands or the companion Portfolio
+dashboard. Shared Upstash configuration synchronizes the two deployments;
+member XP, warnings, and ticket records remain in local SQLite. See
+[PUBLIC_LAUNCH.md](PUBLIC_LAUNCH.md) for the audit, deployment order, limits,
+and release checklist. This is not a multi-host or million-user certification.
+
+## Public-server improvements
+
+- `/help`, `/setup`, and `/health` provide private guidance and diagnostics.
+- Watching presence displays the guild total, including ShardingManager totals
+  when available. Join/leave updates are coalesced over 15 seconds.
+- `/automod safety` adds opt-in traffic/mention spam protection and log-only
+  testing. Log-only actions never escalate or record strikes.
+- Tickets and booster messages use neutral community copy, not studio rewards.
+- The personal name-trigger feature is disabled unless `SOFRA_PERSONAL_GUILD_ID`
+  explicitly restricts it to one server.
+- Dashboard sync writes acknowledgements with short expiry, bounds concurrent
+  polling, serializes per-guild tasks, and seeds without overwriting existing data.
 
 ## Features
 
@@ -44,7 +60,7 @@ message archive. Configuration happens through Discord slash commands.
 
 - Detects the exact transition when a member begins boosting the server
 - Assigns one configurable custom **Server Booster** role automatically
-- Posts a pink Sofra thank-you embed with the supplied banner and Nitro GIF
+- Posts a pink Sofra thank-you embed with the current server name and icon
 - Randomly selects from exactly 67 cute, sincere thank-you messages
 - Removes the custom role when the member stops boosting
 - Persistent per-server role, channel, and enabled state with safe duplicate-event handling
@@ -100,7 +116,7 @@ message archive. Configuration happens through Discord slash commands.
 
 ### Private ticket system
 
-- Admin-posted pink ticket panel for Bug Reports, Player Reports, and Other help
+- Admin-posted pink ticket panel for Bug Reports, Member Reports, and Other help
 - Private numbered channels with persistent IDs such as `bug-0001`
 - Access restricted to the creator, configured staff roles, and Sofra
 - One open ticket of each type per member to prevent spam
@@ -136,8 +152,7 @@ message archive. Configuration happens through Discord slash commands.
    Messages**, and **Embed Links** in the selected panel and Staff Logs channels.
 10. Booster celebrations require **Manage Roles** with Sofra above the custom
     booster role. The thank-you channel needs **View Channel**, **Send Messages**,
-    and **Embed Links**. Sofra also needs access and **Read Message History** in
-    the channel containing the referenced Nitro GIF message.
+    and **Embed Links**. No studio-specific media channel is required.
 11. To enable AI chat, create a Google AI Studio key, set `GEMINI_API_KEY`, then run `/ai channel channel:#channel`
     as a server administrator. The configured channel needs **View Channel**, **Send
     Messages**, and **Read Message History**.

@@ -12,11 +12,12 @@ const ticket = {
   createdAt: 1_787_712_400_000,
 };
 
-test("ticket panel has the requested banner, descriptions, and three persistent buttons", () => {
+test("ticket panel is server-neutral with three persistent buttons and no expiring banner", () => {
   const panel = buildTicketPanel();
-  assert.equal(panel.embeds.length, 2);
-  assert.match(panel.embeds[0].toJSON().image.url, /cdn\.discordapp\.com/);
-  assert.match(panel.embeds[1].toJSON().fields[0].value, /1,000–100,000 Robux/);
+  assert.equal(panel.embeds.length, 1);
+  assert.equal(panel.embeds[0].toJSON().image, undefined);
+  assert.doesNotMatch(JSON.stringify(panel), /Robux|Player Reports/);
+  assert.match(panel.embeds[0].toJSON().fields[0].value, /Never share passwords or tokens/);
   assert.deepEqual(
     panel.components[0].toJSON().components.map((button) => button.custom_id),
     ["ticket:create:bug", "ticket:create:report", "ticket:create:other"],
@@ -27,7 +28,7 @@ test("ticket panel respects dashboard-enabled ticket types", () => {
   const panel = buildTicketPanel({
     types: { bug: true, report: false, other: true },
   });
-  const fields = panel.embeds[1].toJSON().fields;
+  const fields = panel.embeds[0].toJSON().fields;
 
   assert.deepEqual(
     panel.components[0].toJSON().components.map((button) => button.custom_id),
@@ -35,7 +36,7 @@ test("ticket panel respects dashboard-enabled ticket types", () => {
   );
   assert.ok(fields.some((field) => field.name.includes("Bug Reports")));
   assert.ok(fields.some((field) => field.name.includes("Others")));
-  assert.ok(!fields.some((field) => field.name.includes("Player Reports")));
+  assert.ok(!fields.some((field) => field.name.includes("Member Reports")));
 });
 
 test("ticket information and Staff Logs include stable ticket metadata", () => {

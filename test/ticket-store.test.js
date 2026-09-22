@@ -97,3 +97,14 @@ test("one open ticket per member and type is enforced through state changes", as
   assert.equal(store.reopenTicket(GUILD_ID, ticket.id).status, "open");
   store.close();
 });
+
+test("dashboard ticket disable/type state survives a local restart", async (t) => {
+  const { store, filePath } = await fixture(t);
+  store.setTicketOptions(GUILD_ID, { enabled: false, types: { report: false } });
+  store.close();
+  const restarted = new LevelStore({ filePath, logger }); await restarted.init();
+  const config = restarted.getTicketConfig(GUILD_ID);
+  assert.equal(config.enabled, false);
+  assert.deepEqual(config.types, { bug: true, report: false, other: true });
+  restarted.close();
+});

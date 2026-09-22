@@ -5,6 +5,11 @@ const roleKind = (option) => option.setName("kind").setDescription("What this ro
 
 export const automodCommand = new SlashCommandBuilder().setName("automod").setDescription("Configure Sofra's context-aware message filter.").setDMPermission(false)
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+  .addSubcommand((sub) => sub.setName("safety").setDescription("Configure log-only mode and traffic protection.")
+    .addBooleanOption((o) => o.setName("dry-run").setDescription("Log detections without punishments or public warnings."))
+    .addBooleanOption((o) => o.setName("anti-spam").setDescription("Detect message floods, repeated messages, and mention spam."))
+    .addIntegerOption((o) => o.setName("message-limit").setDescription("Messages in ten seconds to trigger (3–20).").setMinValue(3).setMaxValue(20))
+    .addIntegerOption((o) => o.setName("mention-limit").setDescription("Mentions in one message to trigger (3–20).").setMinValue(3).setMaxValue(20)))
   .addSubcommand((sub) => sub.setName("enable").setDescription("Enable filtering without changing saved settings."))
   .addSubcommand((sub) => sub.setName("disable").setDescription("Pause filtering without deleting settings."))
   .addSubcommand((sub) => sub.setName("status").setDescription("Privately review the current filter configuration."))

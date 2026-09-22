@@ -8,8 +8,10 @@ import { modLogCommand } from "./modlog/command.js";
 import { moderationCommands } from "./moderation/commands.js";
 import { ticketChannelCommand } from "./ticket/command.js";
 import { welcomeCommand } from "./welcome/command.js";
+import { onboardingCommands } from "./onboarding.js";
 
 const commandsToRegister = Object.freeze([
+  ...onboardingCommands,
   aiCommand,
   welcomeCommand,
   levelCommand,
