@@ -5,7 +5,7 @@ import {
 } from "discord.js";
 
 export const ticketChannelCommand = new SlashCommandBuilder()
-  .setName("ticket-channel")
+  .setName("ticket")
   .setDescription("Configure and post Sofra's private support ticket panel.")
   .setDMPermission(false)
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
