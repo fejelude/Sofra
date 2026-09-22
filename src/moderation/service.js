@@ -626,8 +626,9 @@ export class ModerationService {
 
   async replyWithFailure(interaction, command) {
     try {
+      const label = command === "purge" ? "/purge" : `/mod action:${command}`;
       await interaction.editReply(
-        `Sofra couldn’t complete /${command}. Nothing else crashed—check permissions, role hierarchy, disk space, and the Wispbyte console.`,
+        `Sofra couldn’t complete ${label}. Nothing else crashed—check permissions, role hierarchy, disk space, and the Wispbyte console.`,
       );
     } catch (replyError) {
       this.logger.error(
