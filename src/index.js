@@ -183,7 +183,7 @@ client.on(Events.InteractionCreate, (interaction) => {
     await communityService.handleInteraction(interaction);
   })().catch(async (error) => {
     logger.error("INTERACTION_FAILED", "An interaction failed safely.", error, { guildId: interaction.guildId });
-    const message = { content: "Sofra couldn't complete that request. Please try again or ask a server manager to run /health.", allowedMentions: { parse: [] } };
+    const message = { content: "Sofra couldn't complete that request. Please try again or ask a server manager to open /sofra → Health.", allowedMentions: { parse: [] } };
     try {
       if (interaction.deferred || interaction.replied) await interaction.editReply(message);
       else if (interaction.isRepliable()) await interaction.reply({ ...message, flags: 64 });
