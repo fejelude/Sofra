@@ -147,16 +147,18 @@ and release checklist. This is not a multi-host or million-user certification.
    safely edit the `@everyone` channel permission overwrite.
 7. Polls require **Send Messages** and **Create Polls** in the channel.
 8. Moderation logs require **View Audit Log** to detect supported actions made
-   manually through Discord. `/modlog setup` additionally needs **Manage
-   Channels** and **Manage Roles**; the destination needs **View Channel**,
+   manually through Discord. Configure the Staff Logs destination in the
+   dashboard; Sofra needs **Manage Channels** and **Manage Roles** when creating
+   private moderation areas, and the destination needs **View Channel**,
    **Send Messages**, and **Embed Links**.
 9. Tickets require **Manage Channels**. Sofra also needs **View Channel**, **Send
    Messages**, and **Embed Links** in the selected panel and Staff Logs channels.
 10. Booster celebrations require **Manage Roles** with Sofra above the custom
     booster role. The thank-you channel needs **View Channel**, **Send Messages**,
     and **Embed Links**. No studio-specific media channel is required.
-11. To enable AI chat, create a Google AI Studio key, set `GEMINI_API_KEY`, then run `/ai channel channel:#channel`
-    as a server administrator. The configured channel needs **View Channel**, **Send
+11. To enable AI chat, create a Google AI Studio key, set `GEMINI_API_KEY`,
+    then run `/ai action:Set channel channel:#channel` as a server
+    administrator. The configured channel needs **View Channel**, **Send
     Messages**, and **Read Message History**.
 
 The level system deliberately ignores message text when awarding XP. Message
@@ -319,19 +321,22 @@ npm run check
 
 After deployment:
 
-1. Confirm the new slash commands appear and assign Sofra only the moderation
-   permissions you plan to use.
-2. Test `/userinfo`, `/serverinfo`, `/poll`, and `/meme`.
-3. Run `/modlog setup`, add any non-administrator staff roles to the private
-   category, then verify `/modlog status` and `/modlog test`.
-4. Use a private test channel and trusted test account for moderation commands;
-   confirm each successful action appears once in `#staff-logs`.
-5. Confirm `/lockdown` blocks typing and `/unlock` restores the original state.
-6. Run `/autorole status`, `/level status`, and `/welcome status` to confirm the
-   existing systems remain valid.
+1. Confirm Discord shows exactly the compact top-level command set documented
+   above and that removed legacy commands disappear after Sofra reconnects.
+2. Test `/sofra`, `/info`, `/level`, `/poll`, and `/meme`.
+3. Open `/sofra` → **Health** as a server manager and verify storage,
+   permissions, and dashboard sync.
+4. Use a private test channel and trusted test account with `/mod`; confirm
+   successful actions still appear once in `#staff-logs`.
+5. Verify `/mod action:Lock channel` and `/mod action:Unlock channel` preserve
+   the channel's previous typing state.
+6. Review Welcome, Auto Role, Levels, AutoMod, Boosters, Staff Logs, and Tickets
+   in the dashboard to confirm their existing stored configuration is intact.
+7. Test `/ai` status/channel handling and `/ticket` panel posting if those
+   modules are enabled on the server.
 
-For welcomes, run `/welcome channel`, `/welcome enable`, `/welcome status`, and
-`/welcome test`, then verify a real join with a test account or trusted member.
+For welcomes, use the dashboard's preview/test controls and then verify a real
+join with a test account or trusted member.
 
 ## Known limitations
 
