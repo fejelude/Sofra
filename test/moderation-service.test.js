@@ -204,11 +204,11 @@ test("lockdown and unlock restore the exact prior Send Messages state", async ()
   assert.match(unlocked.reply(), /pre-lockdown state/);
 });
 
-test("runtime permission guard rejects unauthorized command calls", async () => {
+test("runtime permission guard rejects unauthorized /mod actions", async () => {
   const current = fixture();
   let response;
   const interaction = {
-    commandName: "ban",
+    commandName: "mod",
     guild: current.guild,
     guildId: GUILD_ID,
     user: { id: MODERATOR_ID },
@@ -223,7 +223,11 @@ test("runtime permission guard rejects unauthorized command calls", async () => 
       response = value;
     },
     memberPermissions: { has: () => false },
-    options: {},
+    options: {
+      getString: (name) => (name === "action" ? "ban" : null),
+      getUser: () => current.user,
+      getInteger: () => null,
+    },
   };
 
   await current.service.handleInteraction(interaction);

@@ -11,13 +11,6 @@ function reasonOption(option) {
     .setMaxLength(500);
 }
 
-function memberOption(option) {
-  return option
-    .setName("member")
-    .setDescription("The server member to moderate.")
-    .setRequired(true);
-}
-
 function textChannelOption(option) {
   return option
     .setName("channel")
@@ -39,127 +32,65 @@ export const purgeCommand = new SlashCommandBuilder()
       .setRequired(true),
   );
 
-export const banCommand = new SlashCommandBuilder()
-  .setName("ban")
-  .setDescription("Ban a user from the server.")
+export const modCommand = new SlashCommandBuilder()
+  .setName("mod")
+  .setDescription("Moderate members and channels from one clean command.")
   .setDMPermission(false)
-  .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
+  .addStringOption((option) =>
+    option
+      .setName("action")
+      .setDescription("What you want Sofra to do.")
+      .setRequired(true)
+      .addChoices(
+        { name: "Warn member", value: "warn" },
+        { name: "View warnings", value: "warnings" },
+        { name: "Timeout member", value: "mute" },
+        { name: "Remove timeout", value: "unmute" },
+        { name: "Kick member", value: "kick" },
+        { name: "Ban user", value: "ban" },
+        { name: "Unban user", value: "unban" },
+        { name: "Lock channel", value: "lockdown" },
+        { name: "Unlock channel", value: "unlock" },
+        { name: "Set slowmode", value: "slowmode" },
+      ),
+  )
   .addUserOption((option) =>
-    option.setName("user").setDescription("The user to ban.").setRequired(true),
+    option
+      .setName("target")
+      .setDescription("Member or user affected by this action."),
   )
   .addStringOption(reasonOption)
-  .addIntegerOption((option) =>
-    option
-      .setName("delete-message-days")
-      .setDescription("Delete this many days of the user's messages (0–7).")
-      .setMinValue(0)
-      .setMaxValue(7),
-  );
-
-export const kickCommand = new SlashCommandBuilder()
-  .setName("kick")
-  .setDescription("Remove a member from the server.")
-  .setDMPermission(false)
-  .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers)
-  .addUserOption(memberOption)
-  .addStringOption(reasonOption);
-
-export const muteCommand = new SlashCommandBuilder()
-  .setName("mute")
-  .setDescription("Temporarily prevent a member from using text and voice chat.")
-  .setDMPermission(false)
-  .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
-  .addUserOption(memberOption)
   .addIntegerOption((option) =>
     option
       .setName("duration-minutes")
       .setDescription("Timeout duration in minutes (maximum 28 days).")
       .setMinValue(1)
-      .setMaxValue(40_320)
-      .setRequired(true),
+      .setMaxValue(40_320),
   )
-  .addStringOption(reasonOption);
-
-export const unmuteCommand = new SlashCommandBuilder()
-  .setName("unmute")
-  .setDescription("End a member's Discord timeout early.")
-  .setDMPermission(false)
-  .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
-  .addUserOption(memberOption)
-  .addStringOption(reasonOption);
-
-export const warnCommand = new SlashCommandBuilder()
-  .setName("warn")
-  .setDescription("Record an official warning and privately notify the member.")
-  .setDMPermission(false)
-  .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
-  .addUserOption(memberOption)
-  .addStringOption((option) => reasonOption(option).setRequired(true));
-
-export const warningsCommand = new SlashCommandBuilder()
-  .setName("warnings")
-  .setDescription("Privately review a member's recorded warnings.")
-  .setDMPermission(false)
-  .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
-  .addUserOption(memberOption);
-
-export const unbanCommand = new SlashCommandBuilder()
-  .setName("unban")
-  .setDescription("Unban a user using their Discord user ID.")
-  .setDMPermission(false)
-  .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
+  .addIntegerOption((option) =>
+    option
+      .setName("delete-message-days")
+      .setDescription("For bans: delete this many days of messages (0–7).")
+      .setMinValue(0)
+      .setMaxValue(7),
+  )
   .addStringOption((option) =>
     option
       .setName("user-id")
-      .setDescription("The 17–20 digit Discord user ID to unban.")
+      .setDescription("For unbans: the 17–20 digit Discord user ID.")
       .setMinLength(17)
-      .setMaxLength(20)
-      .setRequired(true),
+      .setMaxLength(20),
   )
-  .addStringOption(reasonOption);
-
-export const lockdownCommand = new SlashCommandBuilder()
-  .setName("lockdown")
-  .setDescription("Stop normal members from typing in a text channel.")
-  .setDMPermission(false)
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
   .addChannelOption(textChannelOption)
-  .addStringOption(reasonOption);
-
-export const unlockCommand = new SlashCommandBuilder()
-  .setName("unlock")
-  .setDescription("Restore the channel's pre-lockdown typing permission.")
-  .setDMPermission(false)
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
-  .addChannelOption(textChannelOption)
-  .addStringOption(reasonOption);
-
-export const slowmodeCommand = new SlashCommandBuilder()
-  .setName("slowmode")
-  .setDescription("Set a message cooldown for a text channel.")
-  .setDMPermission(false)
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
   .addIntegerOption((option) =>
     option
       .setName("seconds")
-      .setDescription("Cooldown in seconds; use 0 to disable (maximum 6 hours).")
+      .setDescription("For slowmode: seconds between messages; 0 disables it.")
       .setMinValue(0)
-      .setMaxValue(21_600)
-      .setRequired(true),
-  )
-  .addChannelOption(textChannelOption)
-  .addStringOption(reasonOption);
+      .setMaxValue(21_600),
+  );
 
 export const moderationCommands = Object.freeze([
   purgeCommand,
-  banCommand,
-  kickCommand,
-  muteCommand,
-  warnCommand,
-  warningsCommand,
-  unbanCommand,
-  unmuteCommand,
-  lockdownCommand,
-  unlockCommand,
-  slowmodeCommand,
+  modCommand,
 ]);

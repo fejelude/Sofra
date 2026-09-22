@@ -2,24 +2,22 @@ import { ChannelType, PermissionFlagsBits, SlashCommandBuilder } from "discord.j
 
 export const aiCommand = new SlashCommandBuilder()
   .setName("ai")
-  .setDescription("Configure Sofra's AI chat channel.")
+  .setDescription("Manage Sofra's AI chat channel without a subcommand tree.")
   .setDMPermission(false)
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("channel")
-      .setDescription("Choose the channel where Sofra will answer AI chat.")
-      .addChannelOption((option) =>
-        option
-          .setName("channel")
-          .setDescription("The channel where Sofra should answer messages.")
-          .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
-          .setRequired(true),
+  .addStringOption((option) =>
+    option
+      .setName("action")
+      .setDescription("Review, configure, or disable AI chat.")
+      .addChoices(
+        { name: "Status", value: "status" },
+        { name: "Set channel", value: "channel" },
+        { name: "Disable", value: "disable" },
       ),
   )
-  .addSubcommand((subcommand) =>
-    subcommand.setName("disable").setDescription("Stop Sofra from answering AI chat in this server."),
-  )
-  .addSubcommand((subcommand) =>
-    subcommand.setName("status").setDescription("Show the configured AI chat channel."),
+  .addChannelOption((option) =>
+    option
+      .setName("channel")
+      .setDescription("Channel Sofra should answer in when action is Set channel.")
+      .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement),
   );

@@ -22,6 +22,15 @@ const COMMAND_PERMISSIONS = Object.freeze({
   slowmode: PermissionFlagsBits.ManageChannels,
 });
 
+function targetUser(interaction) {
+  return (
+    interaction.options.getUser?.("target") ??
+    interaction.options.getUser?.("member") ??
+    interaction.options.getUser?.("user") ??
+    null
+  );
+}
+
 function auditReason(interaction, reason) {
   const detail = reason?.trim() || "No reason provided";
   return `${detail} • Actioned by ${interaction.user.tag} (${interaction.user.id})`.slice(
@@ -66,14 +75,19 @@ export class ModerationService {
   }
 
   async handleInteraction(interaction) {
-    if (
-      !interaction.isChatInputCommand() ||
-      !Object.hasOwn(COMMAND_PERMISSIONS, interaction.commandName)
-    ) {
+    const isPurge =
+      interaction.isChatInputCommand?.() && interaction.commandName === "purge";
+    const isMod =
+      interaction.isChatInputCommand?.() && interaction.commandName === "mod";
+
+    if (!isPurge && !isMod) {
       return false;
     }
 
-    const command = interaction.commandName;
+    const command = isPurge
+      ? "purge"
+      : interaction.options.getString("action", true);
+
     try {
       if (!interaction.inGuild() || !interaction.guild) {
         await interaction.reply({
@@ -83,7 +97,16 @@ export class ModerationService {
         return true;
       }
 
+      if (!Object.hasOwn(COMMAND_PERMISSIONS, command)) {
+        await interaction.reply({
+          content: "That moderation action is not supported.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return true;
+      }
+
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
       if (!interaction.memberPermissions?.has(COMMAND_PERMISSIONS[command])) {
         await interaction.editReply(
           "You do not have the Discord permission required for that moderation action.",
@@ -91,18 +114,54 @@ export class ModerationService {
         return true;
       }
 
+      if (isMod) {
+        const inputError = this.validateModInput(interaction, command);
+        if (inputError) {
+          await interaction.editReply(inputError);
+          return true;
+        }
+      }
+
       await this[command](interaction);
       return true;
     } catch (error) {
       this.logger.error(
         "MODERATION_COMMAND_FAILED",
-        `/${command} failed without affecting Sofra’s other features.`,
+        `/${isPurge ? "purge" : "mod"} (${command}) failed without affecting Sofra’s other features.`,
         error,
         { guildId: interaction.guildId, userId: interaction.user?.id, command },
       );
       await this.replyWithFailure(interaction, command);
       return true;
     }
+  }
+
+  validateModInput(interaction, action) {
+    const needsTarget = new Set([
+      "warn",
+      "warnings",
+      "mute",
+      "unmute",
+      "kick",
+      "ban",
+    ]);
+
+    if (needsTarget.has(action) && !targetUser(interaction)) {
+      return "Choose a **target** for that moderation action.";
+    }
+    if (action === "warn" && !interaction.options.getString("reason")) {
+      return "Add a **reason** before warning a member.";
+    }
+    if (action === "mute" && interaction.options.getInteger("duration-minutes") === null) {
+      return "Choose a **duration-minutes** value for the timeout.";
+    }
+    if (action === "unban" && !interaction.options.getString("user-id")) {
+      return "Add the banned user's **user-id**.";
+    }
+    if (action === "slowmode" && interaction.options.getInteger("seconds") === null) {
+      return "Choose the **seconds** value for slowmode; use 0 to disable it.";
+    }
+    return null;
   }
 
   async purge(interaction) {
@@ -154,7 +213,7 @@ export class ModerationService {
   }
 
   async ban(interaction) {
-    const user = interaction.options.getUser("user", true);
+    const user = targetUser(interaction);
     const reason = interaction.options.getString("reason") || "No reason provided";
     const deleteDays = interaction.options.getInteger("delete-message-days") ?? 0;
     if (!(await this.canActOnUser(interaction, user, "ban"))) return;
@@ -284,7 +343,7 @@ export class ModerationService {
       await interaction.editReply("Warning storage is unavailable. Check the Wispbyte console.");
       return;
     }
-    const user = interaction.options.getUser("member", true);
+    const user = targetUser(interaction);
     const warnings = this.store.getWarnings(interaction.guild.id, user.id, 10);
     const description = warnings.history.length
       ? warnings.history
@@ -452,7 +511,7 @@ export class ModerationService {
   }
 
   async resolveTargetMember(interaction) {
-    const user = interaction.options.getUser("member", true);
+    const user = targetUser(interaction);
     const member = await interaction.guild.members.fetch(user.id).catch(() => null);
     if (!member) {
       await interaction.editReply("That user is not currently a member of this server.");
@@ -567,8 +626,9 @@ export class ModerationService {
 
   async replyWithFailure(interaction, command) {
     try {
+      const label = command === "purge" ? "/purge" : `/mod action:${command}`;
       await interaction.editReply(
-        `Sofra couldn’t complete /${command}. Nothing else crashed—check permissions, role hierarchy, disk space, and the Wispbyte console.`,
+        `Sofra couldn’t complete ${label}. Nothing else crashed—check permissions, role hierarchy, disk space, and the Wispbyte console.`,
       );
     } catch (replyError) {
       this.logger.error(

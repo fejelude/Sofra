@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { PermissionFlagsBits } from "discord.js";
 import { communityCommands } from "../src/community/commands.js";
 
-test("community commands expose info, announcement, poll, and meme tools", () => {
+test("community commands keep a compact info, announcement, poll, and meme surface", () => {
   const commands = communityCommands.map((command) => command.toJSON());
   assert.deepEqual(
     commands.map((command) => command.name),
-    ["userinfo", "serverinfo", "embed", "poll", "meme"],
+    ["info", "embed", "poll", "meme"],
   );
   assert.equal(
     commands.find((command) => command.name === "embed").default_member_permissions,
@@ -20,6 +20,12 @@ test("community commands expose info, announcement, poll, and meme tools", () =>
   assert.equal(
     commands.find((command) => command.name === "meme").default_member_permissions,
     undefined,
+  );
+
+  const info = commands.find((command) => command.name === "info");
+  assert.deepEqual(
+    info.options.find((option) => option.name === "view").choices.map((choice) => choice.value),
+    ["server", "member"],
   );
 });
 

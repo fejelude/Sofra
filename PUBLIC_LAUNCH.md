@@ -25,7 +25,7 @@ certify million-user capacity.
 
 | Finding | Change |
 | --- | --- |
-| No discoverable introduction/setup commands | Add `/help`, `/setup`, `/health`, private responses, and runtime Manage Server checks |
+| Discord command picker was too crowded | Replace separate onboarding/configuration command trees with a compact `/sofra` control center, ten top-level entry points, private setup/health views, and runtime permission checks |
 | No requested server-count presence | Watching presence, 15-second coalesced membership updates, periodic refresh, shard aggregation when managed shards are used |
 | Personal name triggers ran in all communities | Disabled unless `SOFRA_PERSONAL_GUILD_ID` explicitly scopes the feature |
 | Ticket copy promised studio-specific rewards | Neutral reports/support copy; remove expiring ticket banner URLs |
@@ -45,18 +45,21 @@ certify million-user capacity.
 
 - `SOFRA_WEBSITE_URL`: optional HTTPS origin for onboarding links.
 - `SOFRA_PERSONAL_GUILD_ID`: optional guild ID; leave blank for general public use.
-- `/automod safety dry-run:true`: opt-in log-only testing. Requires AutoMod's
-  master toggle and staff logs for visible incidents. Public messages remain.
-- `/automod safety anti-spam:true`: detect flooding, four identical messages
-  within ten seconds, and configured mention limits. Defaults: seven messages
-  per ten seconds, six mentions in a message. Threshold ranges: 3–20.
+- AutoMod safety settings are configured through the dashboard instead of
+  being exposed as a large Discord subcommand tree. Log-only testing still
+  requires AutoMod's master toggle and staff logs for visible incidents.
+- Dashboard AutoMod traffic protection can detect flooding, four identical
+  messages within ten seconds, and configured mention limits. Defaults remain
+  seven messages per ten seconds and six mentions in a message; threshold
+  ranges remain 3–20.
 - Existing bypass roles and exempt channels apply to traffic protection.
 - Log-only mode keeps at most five incident logs per member per minute.
 
 The new `automod_safety` and `ticket_options` tables are additive. Existing
 settings and member records are not deleted. Spam protection remains off until
-an administrator enables it. Live command registration still uses the existing
-upsert workflow; remove `DISCORD_GUILD_ID` to register commands globally.
+an administrator enables it. Live command registration now reconciles Discord
+to Sofra's exact desired command set, including deleting obsolete legacy
+commands; remove `DISCORD_GUILD_ID` to register commands globally.
 
 ## Coordinated deployment
 
@@ -82,8 +85,9 @@ can discard safety settings; roll back both projects together and recheck them.
 - Install in two unrelated servers. Confirm settings, XP, warnings, tickets,
   bypass roles, and moderation actions never cross guild boundaries.
 - Test owner, Manage Server, ordinary member, and recently-demoted staff access.
-- Change a setting in the dashboard; refresh to see the exact section applied.
-  Change it in Discord; refresh the dashboard and verify it matches.
+- Change a dashboard-managed setting and refresh to see the exact section
+  applied. Separately verify the retained Discord-side operations such as
+  `/ai` and `/ticket` still behave correctly.
 - Pause the bot; after 180 seconds the dashboard must show unknown sync status,
   not claim the bot is online. Change settings while paused and verify on restart.
 - Disable tickets, restart with Redis unavailable, and click an old panel button:
@@ -92,7 +96,8 @@ can discard safety settings; roll back both projects together and recheck them.
   channel exemptions, bypass roles, duplicate events, edits and role hierarchy.
 - Deny Manage Messages / Moderate Members / Manage Roles separately. Confirm
   failures are logged and do not crash the bot. Test role deletion and channels.
-- Confirm `/help`, `/setup`, `/health`, public global commands and Watching status.
+- Confirm `/sofra`, the documented compact top-level command set, stale-command
+  cleanup, and Watching status.
 - Review ticket privacy with members who do and do not hold configured staff roles.
 - Test desktop/mobile dashboard, keyboard navigation and reduced-motion settings.
 

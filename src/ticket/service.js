@@ -161,7 +161,7 @@ export class TicketService {
   }
 
   async handleInteraction(interaction) {
-    const isSetup = interaction.isChatInputCommand() && interaction.commandName === "ticket-channel";
+    const isSetup = interaction.isChatInputCommand() && interaction.commandName === "ticket";
     const isTicketButton = interaction.isButton() && interaction.customId.startsWith("ticket:");
     if (!isSetup && !isTicketButton) return false;
 

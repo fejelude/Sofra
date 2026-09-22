@@ -4,20 +4,24 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 
-export const userInfoCommand = new SlashCommandBuilder()
-  .setName("userinfo")
-  .setDescription("Show account, join-date, and role information for a member.")
+export const infoCommand = new SlashCommandBuilder()
+  .setName("info")
+  .setDescription("Show server information or inspect a member.")
   .setDMPermission(false)
+  .addStringOption((option) =>
+    option
+      .setName("view")
+      .setDescription("Choose server or member information.")
+      .addChoices(
+        { name: "Server", value: "server" },
+        { name: "Member", value: "member" },
+      ),
+  )
   .addUserOption((option) =>
     option
       .setName("member")
-      .setDescription("The member to inspect; defaults to you."),
+      .setDescription("Member to inspect when using the Member view."),
   );
-
-export const serverInfoCommand = new SlashCommandBuilder()
-  .setName("serverinfo")
-  .setDescription("Show membership, boost, owner, and creation information.")
-  .setDMPermission(false);
 
 export const embedCommand = new SlashCommandBuilder()
   .setName("embed")
@@ -86,8 +90,7 @@ export const memeCommand = new SlashCommandBuilder()
   .setDMPermission(false);
 
 export const communityCommands = Object.freeze([
-  userInfoCommand,
-  serverInfoCommand,
+  infoCommand,
   embedCommand,
   pollCommand,
   memeCommand,
