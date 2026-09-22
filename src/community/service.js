@@ -113,7 +113,10 @@ export class CommunityService {
   }
 
   async info(interaction) {
-    const view = interaction.options.getString("view") ?? "server";
+    const selectedMember = interaction.options.getUser("member");
+    const view =
+      interaction.options.getString("view") ??
+      (selectedMember ? "member" : "server");
     if (view === "member") {
       await this.userinfo(interaction);
       return;
