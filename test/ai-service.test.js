@@ -84,7 +84,7 @@ test("/ai channel saves the selected channel without requiring a manually copied
       reply = content;
     },
     options: {
-      getSubcommand: () => "channel",
+      getString: (name) => (name === "action" ? "channel" : null),
       getChannel: () => ({ id: CHANNEL_ID, toString: () => "#ai-chat" }),
     },
   };
