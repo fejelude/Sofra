@@ -1,13 +1,17 @@
+import { aiCommand } from "./ai/command.js";
 import { communityCommands } from "./community/commands.js";
 import { levelCommand } from "./level/command.js";
 import { moderationCommands } from "./moderation/commands.js";
 import { onboardingCommands } from "./onboarding.js";
+import { ticketChannelCommand } from "./ticket/command.js";
 
 export const commandsToRegister = Object.freeze([
   ...onboardingCommands,
   levelCommand,
   ...moderationCommands,
   ...communityCommands,
+  aiCommand,
+  ticketChannelCommand,
 ]);
 
 function commandList(commands) {
