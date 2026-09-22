@@ -130,43 +130,53 @@ test("duplicate events and bot messages are ignored safely", async () => {
   assert.equal(getAwards(), 1);
 });
 
-test("runtime guard blocks non-admin configuration but public rank stays public", async () => {
+test("/level is public while its view buttons answer privately", async () => {
   const { service } = fixture();
-  let adminResponse;
-  const adminInteraction = {
+  let rankCalls = 0;
+  let leaderboardCalls = 0;
+  service.rank = async () => {
+    rankCalls += 1;
+  };
+  service.leaderboard = async () => {
+    leaderboardCalls += 1;
+  };
+
+  let publicDeferred = false;
+  const commandInteraction = {
     commandName: "level",
     guildId: GUILD_ID,
     guild: { id: GUILD_ID },
     user: { id: MEMBER_ID },
-    deferred: false,
-    replied: false,
     isChatInputCommand: () => true,
+    isButton: () => false,
     inGuild: () => true,
-    deferReply: async (options) => {
-      adminInteraction.deferred = true;
-      assert.ok(options.flags);
-    },
-    editReply: async (value) => {
-      adminResponse = value;
-    },
-    memberPermissions: { has: () => false },
-    options: { getSubcommand: () => "disable" },
-  };
-  await service.handleInteraction(adminInteraction);
-  assert.match(adminResponse, /Manage Server/);
-
-  let publicDeferred = false;
-  service.rank = async () => {};
-  const publicInteraction = {
-    ...adminInteraction,
-    deferred: false,
     deferReply: async (...args) => {
       publicDeferred = args.length === 0;
     },
-    options: { getSubcommand: () => "rank" },
   };
-  await service.handleInteraction(publicInteraction);
+
+  assert.equal(await service.handleInteraction(commandInteraction), true);
   assert.equal(publicDeferred, true);
+  assert.equal(rankCalls, 1);
+
+  let privateDeferred = false;
+  const buttonInteraction = {
+    commandName: null,
+    customId: "sofra:level:leaderboard",
+    guildId: GUILD_ID,
+    guild: { id: GUILD_ID },
+    user: { id: MEMBER_ID },
+    isChatInputCommand: () => false,
+    isButton: () => true,
+    inGuild: () => true,
+    deferReply: async (options) => {
+      privateDeferred = Boolean(options.flags);
+    },
+  };
+
+  assert.equal(await service.handleInteraction(buttonInteraction), true);
+  assert.equal(privateDeferred, true);
+  assert.equal(leaderboardCalls, 1);
 });
 
 test("database failures are logged and never escape the event handler", async () => {
