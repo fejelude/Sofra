@@ -1,5 +1,8 @@
 import { randomInt } from "node:crypto";
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   EmbedBuilder,
   MessageFlags,
   PermissionFlagsBits,
@@ -9,7 +12,6 @@ import {
   inspectLevelChannelObject,
   isConfigurableLevelChannel,
 } from "./channel.js";
-import { PUBLIC_LEVEL_SUBCOMMANDS } from "./command.js";
 import {
   buildLeaderboardEmbed,
   buildLevelUpEmbed,
@@ -26,6 +28,7 @@ import {
 import { grantEligibleRoleRewards, inspectRewardRole } from "./roles.js";
 
 const LEADERBOARD_PAGE_SIZE = 10;
+const LEVEL_BUTTON_PREFIX = "sofra:level:";
 const PROCESSED_MESSAGE_TTL_MS = 10 * 60_000;
 const MAX_PROCESSED_MESSAGES = 5_000;
 
@@ -50,11 +53,16 @@ export class LevelService {
   }
 
   async handleInteraction(interaction) {
-    if (!interaction.isChatInputCommand() || interaction.commandName !== "level") {
+    const isCommand =
+      interaction.isChatInputCommand?.() && interaction.commandName === "level";
+    const isLevelButton =
+      interaction.isButton?.() && interaction.customId.startsWith(LEVEL_BUTTON_PREFIX);
+
+    if (!isCommand && !isLevelButton) {
       return false;
     }
 
-    let isPublic = false;
+    const isPublic = isCommand;
 
     try {
       if (!interaction.inGuild() || !interaction.guild) {
@@ -65,62 +73,33 @@ export class LevelService {
         return true;
       }
 
-      const subcommand = interaction.options.getSubcommand(true);
-      isPublic = PUBLIC_LEVEL_SUBCOMMANDS.has(subcommand);
-      if (isPublic) {
+      if (isCommand) {
         await interaction.deferReply();
-      } else {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      }
-
-      if (
-        !isPublic &&
-        !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)
-      ) {
-        await interaction.editReply(
-          "You need **Manage Server** permission to configure Sofra’s level system.",
-        );
+        await this.rank(interaction);
         return true;
       }
 
-      if (subcommand === "rank") {
-        await this.rank(interaction);
-      } else if (subcommand === "leaderboard") {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const view = interaction.customId.slice(LEVEL_BUTTON_PREFIX.length);
+
+      if (view === "leaderboard") {
         await this.leaderboard(interaction);
-      } else if (subcommand === "rewards") {
+      } else if (view === "rewards") {
         await this.rewards(interaction);
-      } else if (subcommand === "enable") {
-        await this.enable(interaction);
-      } else if (subcommand === "disable") {
-        await this.disable(interaction);
-      } else if (subcommand === "channel") {
-        await this.configureChannel(interaction);
-      } else if (subcommand === "channel-reset") {
-        await this.resetChannel(interaction);
-      } else if (subcommand === "settings") {
-        await this.settings(interaction);
-      } else if (subcommand === "role-add") {
-        await this.addRoleReward(interaction);
-      } else if (subcommand === "role-remove") {
-        await this.removeRoleReward(interaction);
-      } else if (subcommand === "test") {
-        await this.testNotification(interaction);
-      } else if (subcommand === "status") {
-        await this.status(interaction);
       } else {
-        await interaction.editReply("That level subcommand is not supported.");
+        await this.rank(interaction);
       }
 
       return true;
     } catch (error) {
       this.logger.error(
         "LEVEL_COMMAND_FAILED",
-        "A /level command failed without affecting the welcome system or Discord client.",
+        "A /level interaction failed without affecting the Discord client.",
         error,
         {
           guildId: interaction.guildId,
           userId: interaction.user?.id,
-          subcommand: interaction.options?.getSubcommand?.(false) ?? null,
+          view: isCommand ? "rank" : interaction.customId,
         },
       );
       await this.replyWithFailure(interaction, isPublic);
@@ -128,8 +107,33 @@ export class LevelService {
     }
   }
 
+  levelNavigation(active) {
+    return [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`${LEVEL_BUTTON_PREFIX}rank`)
+          .setLabel("My Rank")
+          .setStyle(active === "rank" ? ButtonStyle.Primary : ButtonStyle.Secondary)
+          .setDisabled(active === "rank"),
+        new ButtonBuilder()
+          .setCustomId(`${LEVEL_BUTTON_PREFIX}leaderboard`)
+          .setLabel("Leaderboard")
+          .setStyle(active === "leaderboard" ? ButtonStyle.Primary : ButtonStyle.Secondary)
+          .setDisabled(active === "leaderboard"),
+        new ButtonBuilder()
+          .setCustomId(`${LEVEL_BUTTON_PREFIX}rewards`)
+          .setLabel("Rewards")
+          .setStyle(active === "rewards" ? ButtonStyle.Primary : ButtonStyle.Secondary)
+          .setDisabled(active === "rewards"),
+      ),
+    ];
+  }
+
   async rank(interaction) {
-    const user = interaction.options.getUser("member") ?? interaction.user;
+    const user =
+      interaction.isChatInputCommand?.()
+        ? interaction.options.getUser("member") ?? interaction.user
+        : interaction.user;
     const stats = this.store.getMemberStats(interaction.guild.id, user.id);
     const embed = buildRankEmbed({
       user,
@@ -140,12 +144,13 @@ export class LevelService {
 
     await interaction.editReply({
       embeds: [embed],
+      components: this.levelNavigation("rank"),
       allowedMentions: { parse: [] },
     });
   }
 
   async leaderboard(interaction) {
-    const requestedPage = interaction.options.getInteger("page") ?? 1;
+    const requestedPage = 1;
     let page = requestedPage;
     let leaderboard = this.store.getLeaderboard(interaction.guild.id, {
       limit: LEADERBOARD_PAGE_SIZE,
@@ -174,6 +179,7 @@ export class LevelService {
 
     await interaction.editReply({
       embeds: [embed],
+      components: this.levelNavigation("leaderboard"),
       allowedMentions: { parse: [] },
     });
   }
@@ -188,6 +194,7 @@ export class LevelService {
 
     await interaction.editReply({
       embeds: [embed],
+      components: this.levelNavigation("rewards"),
       allowedMentions: { parse: [] },
     });
   }
