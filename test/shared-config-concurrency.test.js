@@ -23,3 +23,53 @@ test("a mutation arriving during a push remains dirty", async () => {
   await sync.pushSection("a", "welcome");
   assert.equal(sync.dirty.has("a:welcome"), true);
 });
+
+
+test("shared config defaults to one global dirty-queue check per minute", () => {
+  const sync = create();
+  assert.equal(sync.pollMs, 60_000);
+});
+
+test("dirty polling refreshes only changed installed guilds and removes completed markers", async () => {
+  const sync = create();
+  sync.client = {
+    guilds: {
+      cache: new Map([["a", {}], ["b", {}]]),
+    },
+  };
+  const commands = [];
+  const refreshed = [];
+  sync.command = async (args) => {
+    commands.push(args);
+    if (args[0] === "SMEMBERS") return ["a", "missing"];
+    return 1;
+  };
+  sync.syncGuild = async (guildId) => {
+    refreshed.push(guildId);
+    return true;
+  };
+
+  await sync.syncChangedGuilds();
+
+  assert.deepEqual(refreshed, ["a"]);
+  assert.ok(commands.some((args) => args[0] === "SET" && args[1] === "sofra:runtime:heartbeat"));
+  assert.ok(commands.some((args) => args[0] === "SREM" && args.includes("missing")));
+  assert.ok(commands.some((args) => args[0] === "SREM" && args.includes("a")));
+  assert.equal(commands.some((args) => args.includes("b")), false);
+});
+
+test("failed guild refresh stays dirty for a later retry", async () => {
+  const sync = create();
+  sync.client = { guilds: { cache: new Map([["a", {}]]) } };
+  const commands = [];
+  sync.command = async (args) => {
+    commands.push(args);
+    if (args[0] === "SMEMBERS") return ["a"];
+    return 1;
+  };
+  sync.syncGuild = async () => false;
+
+  await sync.syncChangedGuilds();
+
+  assert.equal(commands.some((args) => args[0] === "SREM" && args.includes("a")), false);
+});
