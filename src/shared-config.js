@@ -10,6 +10,11 @@ const SECTION_NAMES = Object.freeze([
   "tickets",
 ]);
 
+const DIRTY_GUILDS_KEY = "sofra:config:dirty";
+const HEARTBEAT_KEY = "sofra:runtime:heartbeat";
+const HEARTBEAT_TTL_SECONDS = 180;
+const FULL_SYNC_MS = 6 * 60 * 60 * 1000;
+
 const LEVEL_MUTATIONS = Object.freeze({
   setEnabled: "levels",
   setNotificationChannel: "levels",
@@ -74,16 +79,17 @@ function safeInteger(value, fallback) {
 }
 
 export class SharedConfigSync {
-  constructor({ url, token, pollMs = 4_000, levelStore, welcomeStore, logger }) {
+  constructor({ url, token, pollMs = 60_000, levelStore, welcomeStore, logger }) {
     this.url = String(url ?? "").trim().replace(/\/$/, "");
     this.token = String(token ?? "").trim();
-    this.pollMs = Math.min(60_000, Math.max(2_000, safeInteger(pollMs, 4_000)));
+    this.pollMs = Math.min(300_000, Math.max(10_000, safeInteger(pollMs, 60_000)));
     this.levelStore = levelStore;
     this.welcomeStore = welcomeStore;
     this.logger = logger;
     this.enabled = Boolean(this.url && this.token);
     this.client = null;
     this.timer = null;
+    this.fullSyncTimer = null;
     this.syncing = new Set();
     this.dirty = new Set();
     this.remoteCache = new Map();
@@ -91,6 +97,7 @@ export class SharedConfigSync {
     this.queues = new Map();
     this.versions = new Map();
     this.polling = false;
+    this.changedPolling = false;
   }
 
   wrapLevelStore() {
@@ -175,17 +182,27 @@ export class SharedConfigSync {
       pollMs: this.pollMs,
     });
 
+    // One full reconciliation at startup preserves migration/seeding behavior.
+    // Normal operation then consumes only guilds explicitly marked dirty by
+    // dashboard saves. A slow full reconciliation is kept as a safety net.
     await this.syncAllGuilds();
+    await this.writeHeartbeat().catch(() => undefined);
 
     if (this.stopped) return;
     this.timer = setInterval(() => {
-      void this.syncAllGuilds();
+      void this.syncChangedGuilds();
     }, this.pollMs);
     this.timer.unref?.();
+
+    this.fullSyncTimer = setInterval(() => {
+      void this.syncAllGuilds();
+    }, FULL_SYNC_MS);
+    this.fullSyncTimer.unref?.();
 
     this.logger.info("SHARED_CONFIG_READY", "Sofra Panel shared configuration synchronization is active.", {
       guildCount: client.guilds.cache.size,
       pollMs: this.pollMs,
+      fullSyncMs: FULL_SYNC_MS,
     });
   }
 
@@ -194,6 +211,59 @@ export class SharedConfigSync {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
+    }
+    if (this.fullSyncTimer) {
+      clearInterval(this.fullSyncTimer);
+      this.fullSyncTimer = null;
+    }
+  }
+
+  async writeHeartbeat() {
+    if (!this.enabled || this.stopped) return;
+    await this.command([
+      "SET",
+      HEARTBEAT_KEY,
+      String(Date.now()),
+      "EX",
+      String(HEARTBEAT_TTL_SECONDS),
+    ]);
+  }
+
+  async syncChangedGuilds() {
+    if (!this.enabled || !this.client || this.stopped || this.changedPolling) return;
+    this.changedPolling = true;
+    try {
+      await this.writeHeartbeat();
+      const changed = await this.command(["SMEMBERS", DIRTY_GUILDS_KEY]);
+      const guildIds = Array.isArray(changed) ? [...new Set(changed.map(String))] : [];
+      if (!guildIds.length) return;
+
+      const pending = [];
+      const stale = [];
+      for (const guildId of guildIds) {
+        if (this.client.guilds.cache.has(guildId)) pending.push(guildId);
+        else stale.push(guildId);
+      }
+
+      if (stale.length) {
+        await this.command(["SREM", DIRTY_GUILDS_KEY, ...stale]);
+      }
+
+      await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => {
+        while (pending.length && !this.stopped) {
+          const guildId = pending.shift();
+          const synced = await this.syncGuild(guildId);
+          if (synced) await this.command(["SREM", DIRTY_GUILDS_KEY, guildId]);
+        }
+      }));
+    } catch (error) {
+      this.logger.warn(
+        "SHARED_CONFIG_DIRTY_POLL_FAILED",
+        "Sofra could not check dashboard configuration changes; local settings remain active and the next poll will retry.",
+        { message: error.message },
+      );
+    } finally {
+      this.changedPolling = false;
     }
   }
 
@@ -210,9 +280,9 @@ export class SharedConfigSync {
   }
 
   async syncGuild(guildId) {
-    if (!this.enabled || this.stopped || this.syncing.has(guildId)) return;
+    if (!this.enabled || this.stopped || this.syncing.has(guildId)) return false;
     this.syncing.add(guildId);
-    try { await this.enqueue(guildId, () => this.refreshGuild(guildId)); }
+    try { return await this.enqueue(guildId, () => this.refreshGuild(guildId)); }
     finally { this.syncing.delete(guildId); }
   }
 
@@ -269,14 +339,25 @@ export class SharedConfigSync {
         return [section, value ? createHash("sha256").update(JSON.stringify(value)).digest("hex") : null];
       }));
       if (!this.client?.isReady || this.client.isReady()) {
-        await this.command(["SET", `sofra:guild:${guildId}:runtime`, JSON.stringify({ lastSyncedAt: Date.now(), applied }), "EX", "180"]);
+        // Applied hashes are durable enough to compare later. Bot liveness is
+        // reported separately through one global heartbeat instead of one SET
+        // per guild every few seconds.
+        await this.command([
+          "SET",
+          `sofra:guild:${guildId}:runtime`,
+          JSON.stringify({ lastSyncedAt: Date.now(), applied }),
+          "EX",
+          "86400",
+        ]);
       }
+      return true;
     } catch (error) {
       this.logger.warn(
         "SHARED_CONFIG_SYNC_FAILED",
         "Sofra could not refresh dashboard settings; the last known local configuration remains active.",
         { guildId, message: error.message },
       );
+      return false;
     }
   }
 
