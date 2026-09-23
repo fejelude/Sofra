@@ -62,10 +62,14 @@ function sharedConfigPollMs() {
   const raw = process.env.SOFRA_CONFIG_POLL_MS?.trim();
   if (!raw) return 60_000;
   const value = Number(raw);
-  if (!Number.isInteger(value) || value < 10_000 || value > 300_000) {
-    throw new Error("SOFRA_CONFIG_POLL_MS must be an integer from 10000 to 300000 milliseconds.");
+  if (!Number.isInteger(value) || value < 2_000 || value > 300_000) {
+    throw new Error("SOFRA_CONFIG_POLL_MS must be an integer from 2000 to 300000 milliseconds.");
   }
-  return value;
+
+  // Existing deployments commonly have the old 4000 ms default. Treat any
+  // legacy sub-10s value as the new safe default instead of crashing or
+  // continuing the quota-heavy polling cadence.
+  return value < 10_000 ? 60_000 : value;
 }
 
 export function readRuntimeConfig() {
